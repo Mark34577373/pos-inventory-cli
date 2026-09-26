@@ -8,9 +8,28 @@ A command-line inventory management application built while learning software en
 -Product prices
 -Product quantities
 -Basic low-stock detection
--view inventory
+-View inventory
 -Add products
 -Product names
+-Remove products
+-Search Products
+-Product IDs
+-Low-Stock detection
+-Basic input validation
+-Error Handling
+
+## Architecture
+
+Currently, this is a Python command-line application
+
+Future versions will introduce:
+
+-Rest API
+-PostgreSQL database
+-Web interface
+-Authentication
+-Cloud deployment
+-AI functionality
 
 ## Techonologies
 -Python
