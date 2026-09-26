@@ -1,6 +1,7 @@
 # main.py
-import Inventory as inventory
+import inventory
 import pos
+import transactions  # <-- ADD THIS IMPORT
 
 def show_menu():
     print("\n==========================")
@@ -15,7 +16,8 @@ def show_menu():
     print("6. Add Item to Cart")
     print("7. View Cart & Checkout")
     print("--------------------------")
-    print("8. Exit")
+    print("8. View Sales Report")  # <-- ADD THIS OPTION
+    print("9. Exit")
     choice = input("Enter your choice: ")
     return choice
 
@@ -38,6 +40,8 @@ def main():
         elif choice == "7":
             pos.checkout()
         elif choice == "8":
+            transactions.view_sales_report()  # <-- CALL HERE
+        elif choice == "9":
             print("Exiting TCCP System. Goodbye!")
             break
         else:

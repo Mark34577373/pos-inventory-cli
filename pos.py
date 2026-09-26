@@ -1,7 +1,8 @@
 # pos.py
-import Inventory as inventory
+import inventory
+import transactions  # <-- ADD THIS IMPORT
 
-cart = {}  # Format: { product_id: quantity }
+cart = {}  
 
 def add_to_cart():
     print("\n===================================")
@@ -70,14 +71,26 @@ def checkout():
         print("Checkout canceled.")
         return
 
-    # Safely loops through and updates inventory quantities directly
+    # 1. Prepare items snapshot for the transaction logger before clearing cart
+    items_to_log = []
     for product_id, qty in cart.items():
         product = inventory.find_product_by_id(product_id)
+        items_to_log.append({
+            "name": product["name"],
+            "qty": qty,
+            "price": product["price"]
+        })
+        
+        # 2. Deduct items from inventory stock
         product["quantity"] -= qty
+
+    # 3. Send the sale details to the transaction logger
+    tx_id = transactions.log_transaction(items_to_log, total)
 
     print("\n===================================")
     print("        RECEIPT GENERATED")
     print("===================================")
+    print(f"Transaction ID: #{tx_id}")
     print("Thank you for your purchase!")
     
     cart.clear()
