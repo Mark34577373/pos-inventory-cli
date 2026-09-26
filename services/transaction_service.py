@@ -2,29 +2,41 @@
 from datetime import datetime
 from database.database import get_db_connection
 
-def log_transaction(cart_items, total_amount):
-    """Saves a transaction record and its individual items permanently to SQLite."""
+def complete_transaction(cart_items, total_amount):
+    """Deducts inventory and records a sale atomically in SQLite."""
     conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    
-    # 1. Insert into main transactions table
-    cursor.execute(
-        "INSERT INTO transactions (timestamp, total) VALUES (?, ?)",
-        (timestamp, total_amount)
-    )
-    transaction_id = cursor.lastrowid
-    
-    # 2. Insert line items into transaction_items table
-    for item in cart_items:
-        cursor.execute(
-            "INSERT INTO transaction_items (transaction_id, product_id, quantity, price) VALUES (?, ?, ?, ?)",
-            (transaction_id, item["id"], item["qty"], item["price"])
-        )
-        
-    conn.commit()
-    conn.close()
+    try:
+        with conn:
+            cursor = conn.cursor()
+
+            for item in cart_items:
+                cursor.execute(
+                    "UPDATE products SET quantity = quantity - ? "
+                    "WHERE id = ? AND quantity >= ?",
+                    (item["qty"], item["id"], item["qty"])
+                )
+                if cursor.rowcount != 1:
+                    raise ValueError(
+                        f"insufficient stock for product ID {item['id']}"
+                    )
+
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            cursor.execute(
+                "INSERT INTO transactions (timestamp, total) VALUES (?, ?)",
+                (timestamp, total_amount)
+            )
+            transaction_id = cursor.lastrowid
+
+            for item in cart_items:
+                cursor.execute(
+                    "INSERT INTO transaction_items "
+                    "(transaction_id, product_id, quantity, price) "
+                    "VALUES (?, ?, ?, ?)",
+                    (transaction_id, item["id"], item["qty"], item["price"])
+                )
+    finally:
+        conn.close()
+
     return transaction_id
 
 def view_sales_report():

@@ -11,6 +11,24 @@ def find_product_by_id(product_id):
         return dict(row)
     return None
 
+def find_products_by_ids(product_ids):
+    """Fetch several products with one query and one database connection."""
+    product_ids = list(product_ids)
+    if not product_ids:
+        return {}
+
+    placeholders = ", ".join("?" for _ in product_ids)
+    conn = get_db_connection()
+    try:
+        rows = conn.execute(
+            f"SELECT * FROM products WHERE id IN ({placeholders})",
+            product_ids
+        ).fetchall()
+    finally:
+        conn.close()
+
+    return {row["id"]: dict(row) for row in rows}
+
 def get_price(prompt):
     try:
         price = float(input(prompt))
@@ -121,15 +139,27 @@ def update_product():
         new_name = name if name else product["name"]
         
         new_price = product["price"]
-        if price_input:
-            price = get_price("Enter new product price: ")
-            if price is None: return
+        if price_input.strip():
+            try:
+                price = float(price_input)
+            except ValueError:
+                print("Invalid input. Please enter a valid price.")
+                return
+            if price < 0:
+                print("Price cannot be negative. Please enter a valid price.")
+                return
             new_price = price
 
         new_quantity = product["quantity"]
-        if quantity_input:
-            quantity = get_quantity("Enter new product quantity: ")
-            if quantity is None: return
+        if quantity_input.strip():
+            try:
+                quantity = int(quantity_input)
+            except ValueError:
+                print("Invalid input. Please enter a valid quantity.")
+                return
+            if quantity < 0:
+                print("Quantity cannot be negative. Please enter a valid quantity.")
+                return
             new_quantity = quantity
 
         conn = get_db_connection()

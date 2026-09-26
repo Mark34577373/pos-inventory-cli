@@ -1,8 +1,9 @@
 # services/checkout.py
+import sqlite3
+
 from models.cart import Cart
-from services.inventory import find_product_by_id
-from services.transaction_service import log_transaction
-from database.database import get_db_connection
+from services.inventory import find_product_by_id, find_products_by_ids
+from services.transaction_service import complete_transaction
 
 # Initialize a clean session cart instance
 session_cart = Cart()
@@ -44,7 +45,7 @@ def add_to_cart():
     session_cart.add_item(product_id, qty_to_add)
     print(f"Added {qty_to_add}x '{product['name']}' to your cart.")
 
-def view_cart():
+def view_cart(products=None):
     print("\n-------------------------")
     print("        YOUR CART")
     print("-------------------------")
@@ -52,9 +53,15 @@ def view_cart():
         print("Your cart is empty.")
         return 0
 
+    if products is None:
+        products = find_products_by_ids(session_cart.items)
+
     total = 0.0
     for product_id, qty in session_cart.items.items():
-        product = find_product_by_id(product_id)
+        product = products.get(product_id)
+        if product is None:
+            print(f"Product with ID {product_id} is no longer available.")
+            return 0
         subtotal = product["price"] * qty
         total += subtotal
         print(f"{product['name']} x{qty} - ${subtotal:.2f}")
@@ -64,7 +71,8 @@ def view_cart():
     return total
 
 def checkout():
-    total = view_cart()
+    products = find_products_by_ids(session_cart.items)
+    total = view_cart(products)
     if total == 0:
         return
 
@@ -73,28 +81,24 @@ def checkout():
         print("Checkout canceled.")
         return
 
-    # 1. Build details array & lower stock in SQLite
+    # Build the transaction details; inventory and sale writes are committed together.
     items_to_log = []
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
     for product_id, qty in session_cart.items.items():
-        product = find_product_by_id(product_id)
+        product = products[product_id]
         items_to_log.append({
             "id": product["id"],
             "qty": qty,
             "price": product["price"]
         })
-        
-        # Deduct items from SQLite stock quantities directly
-        new_qty = product["quantity"] - qty
-        cursor.execute("UPDATE products SET quantity = ? WHERE id = ?", (new_qty, product_id))
 
-    conn.commit()
-    conn.close()
-
-    # 2. Push details into database transaction logging tables
-    tx_id = log_transaction(items_to_log, total)
+    try:
+        tx_id = complete_transaction(items_to_log, total)
+    except ValueError as error:
+        print(f"Checkout failed: {error}. No changes were saved.")
+        return
+    except sqlite3.Error:
+        print("Checkout failed because the sale could not be recorded. No changes were saved.")
+        return
 
     print("\n===================================")
     print("        RECEIPT GENERATED")
