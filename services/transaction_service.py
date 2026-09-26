@@ -2,8 +2,8 @@
 from datetime import datetime
 from database.database import get_db_connection
 
-def complete_transaction(cart_items, total_amount):
-    """Deducts inventory and records a sale atomically in SQLite."""
+def complete_transaction(cart_items, total_amount, payment_method):
+    """Deducts inventory and records a sale atomically in SQLite with payment details."""
     conn = get_db_connection()
     try:
         with conn:
@@ -21,9 +21,10 @@ def complete_transaction(cart_items, total_amount):
                     )
 
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            # Day 4 Tweak: Added payment_method column and value binding
             cursor.execute(
-                "INSERT INTO transactions (timestamp, total) VALUES (?, ?)",
-                (timestamp, total_amount)
+                "INSERT INTO transactions (timestamp, total, payment_method) VALUES (?, ?, ?)",
+                (timestamp, total_amount, payment_method)
             )
             transaction_id = cursor.lastrowid
 
@@ -58,7 +59,9 @@ def view_sales_report():
 
     grand_total = 0.0
     for tx in transactions:
+        # Day 4 Tweak: Added explicit payment method printing
         print(f"\nTx ID: #{tx['id']} | Time: {tx['timestamp']}")
+        print(f"Payment Method: {tx['payment_method']}")
         print("Items purchased:")
         
         # Fetch the concrete items matching this transaction ID
@@ -80,3 +83,4 @@ def view_sales_report():
     print(f"\nGRAND TOTAL SALES FOR ALL TIME: ${grand_total:.2f}")
     print("===================================")
     conn.close()
+

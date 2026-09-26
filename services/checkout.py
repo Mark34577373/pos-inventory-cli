@@ -124,6 +124,36 @@ def checkout():
         print("Checkout canceled.")
         return False
 
+    print("\nPayment method:")
+    print("1. Cash")
+    print("2. Card")
+    payment_choice = input("Choose payment method: ").strip()
+
+    payment_methods = {"1": "Cash", "2": "Card"}
+    payment_method = payment_methods.get(payment_choice)
+    if payment_method is None:
+        print("Invalid payment method. Choose 1 for Cash or 2 for Card.")
+        return False
+
+    #Handle Cash Change Calculations
+    cash_received = None
+    change = None
+
+    if payment_method == "Cash":
+        while True:
+            try:
+                cash_received = float(input(f"Enter cash received (minimum ${total:.2f}): $"))
+            except ValueError:
+                print("Invalid amount. Please enter a valid number.")
+                continue
+
+            if cash_received < total:
+                print(f"Insufficient cash. You need at least ${total:.2f}.")
+                continue
+
+            change = cash_received - total
+            break
+
     items_to_log = []
     for product_id, qty in session_cart.get_items().items():
         product = products[product_id]
@@ -134,7 +164,7 @@ def checkout():
         })
 
     try:
-        tx_id = complete_transaction(items_to_log, total)
+        tx_id = complete_transaction(items_to_log, total, payment_method)
     except ValueError as error:
         print(f"Checkout failed: {error}. No changes were saved.")
         return False
@@ -146,10 +176,18 @@ def checkout():
     print("        RECEIPT GENERATED")
     print("===================================")
     print(f"Transaction ID: #{tx_id}")
+    print(f"Payment Method: {payment_method}")
+
+    # Day 4 Tweak: Render calculated change breakdown on physical receipt
+    if payment_method == "Cash":
+        print(f"Cash Received: ${cash_received:.2f}")
+        print(f"Change: ${change:.2f}")
+
     print("Thank you for your purchase!")
     
     session_cart.clear()
     return True
+
 
 def cancel_sale():
     """Clears the active cart session if confirmed by the user. Returns True if canceled."""
@@ -178,6 +216,7 @@ def start_sale():
         print("4. Change Quantity")
         print("5. Checkout")
         print("6. Cancel Sale")
+        print("7. Exit Sale")
         print("-----------------------------------")
         
         choice = input("Choose an option: ")
@@ -204,5 +243,12 @@ def start_sale():
                 was_canceled = cancel_sale()
                 if was_canceled:
                     break  # Sale explicitly canceled: exit sale menu loop
+        elif choice == "7":
+            if session_cart.is_empty():
+                print("\nExiting sale.")
+                break
+            else:
+                print("\nYou have items in your cart.")
+                print("Please checkout or cancel the sale first.")
         else:
-            print("\nInvalid option. Please choose 1-6.")
+            print("\nInvalid option. Please choose 1-7.")

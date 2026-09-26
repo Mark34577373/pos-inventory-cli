@@ -30,7 +30,8 @@ def initialize_database():
     CREATE TABLE IF NOT EXISTS transactions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         timestamp TEXT NOT NULL,
-        total REAL NOT NULL
+        total REAL NOT NULL,
+        payment_method TEXT NOT NULL
     )
     """)
 
@@ -46,6 +47,18 @@ def initialize_database():
         FOREIGN KEY (product_id) REFERENCES products (id)
     )
     """)
+
+ # Add payment_method to existing databases if it doesn't exist
+    cursor.execute("PRAGMA table_info(transactions)")
+    transaction_columns = [column["name"] for column in cursor.fetchall()]
+
+    if "payment_method" not in transaction_columns:
+        cursor.execute(
+            "ALTER TABLE transactions "
+            "ADD COLUMN payment_method TEXT NOT NULL DEFAULT 'Unknown'"
+        )
+
+    # Seed initial data if the products table is completely empty
 
     # Seed initial data if the products table is completely empty
     cursor.execute("SELECT COUNT(*) FROM products")
