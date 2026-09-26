@@ -1,8 +1,11 @@
-# pos.py
-import inventory
-import transactions  # <-- ADD THIS IMPORT
+# services/checkout.py
+from models.cart import Cart
+from services.inventory import find_product_by_id
+from services.transaction_service import log_transaction
+from database.database import get_db_connection
 
-cart = {}  
+# Initialize a clean session cart instance
+session_cart = Cart()
 
 def add_to_cart():
     print("\n===================================")
@@ -14,12 +17,12 @@ def add_to_cart():
         print("Invalid input. Please enter a valid product ID.")
         return
 
-    product = inventory.find_product_by_id(product_id)
+    product = find_product_by_id(product_id)
     if not product:
         print(f"Product with ID {product_id} not found.")
         return
 
-    current_cart_qty = cart.get(product_id, 0)
+    current_cart_qty = session_cart.items.get(product_id, 0)
     if product["quantity"] <= current_cart_qty:
         print(f"Cannot add. Only {product['quantity']} available (already have {current_cart_qty} in cart).")
         return
@@ -38,20 +41,20 @@ def add_to_cart():
         print(f"Not enough stock. Total available: {product['quantity']}")
         return
 
-    cart[product_id] = current_cart_qty + qty_to_add
+    session_cart.add_item(product_id, qty_to_add)
     print(f"Added {qty_to_add}x '{product['name']}' to your cart.")
 
 def view_cart():
     print("\n-------------------------")
     print("        YOUR CART")
     print("-------------------------")
-    if not cart:
+    if not session_cart.items:
         print("Your cart is empty.")
         return 0
 
     total = 0.0
-    for product_id, qty in cart.items():
-        product = inventory.find_product_by_id(product_id)
+    for product_id, qty in session_cart.items.items():
+        product = find_product_by_id(product_id)
         subtotal = product["price"] * qty
         total += subtotal
         print(f"{product['name']} x{qty} - ${subtotal:.2f}")
@@ -61,7 +64,6 @@ def view_cart():
     return total
 
 def checkout():
-    global cart
     total = view_cart()
     if total == 0:
         return
@@ -71,21 +73,28 @@ def checkout():
         print("Checkout canceled.")
         return
 
-    # 1. Prepare items snapshot for the transaction logger before clearing cart
+    # 1. Build details array & lower stock in SQLite
     items_to_log = []
-    for product_id, qty in cart.items():
-        product = inventory.find_product_by_id(product_id)
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    for product_id, qty in session_cart.items.items():
+        product = find_product_by_id(product_id)
         items_to_log.append({
-            "name": product["name"],
+            "id": product["id"],
             "qty": qty,
             "price": product["price"]
         })
         
-        # 2. Deduct items from inventory stock
-        product["quantity"] -= qty
+        # Deduct items from SQLite stock quantities directly
+        new_qty = product["quantity"] - qty
+        cursor.execute("UPDATE products SET quantity = ? WHERE id = ?", (new_qty, product_id))
 
-    # 3. Send the sale details to the transaction logger
-    tx_id = transactions.log_transaction(items_to_log, total)
+    conn.commit()
+    conn.close()
+
+    # 2. Push details into database transaction logging tables
+    tx_id = log_transaction(items_to_log, total)
 
     print("\n===================================")
     print("        RECEIPT GENERATED")
@@ -93,4 +102,4 @@ def checkout():
     print(f"Transaction ID: #{tx_id}")
     print("Thank you for your purchase!")
     
-    cart.clear()
+    session_cart.clear()

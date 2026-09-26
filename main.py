@@ -1,7 +1,8 @@
 # main.py
-import inventory
-import pos
-import transactions  # <-- ADD THIS IMPORT
+import services.inventory as inventory
+import services.checkout as checkout
+from database.database import initialize_database
+from services.transaction_service import view_sales_report
 
 def show_menu():
     print("\n==========================")
@@ -22,6 +23,8 @@ def show_menu():
     return choice
 
 def main():
+    initialize_database()
+
     while True:
         choice = show_menu()
 
@@ -36,11 +39,11 @@ def main():
         elif choice == "5":
             inventory.search_product()
         elif choice == "6":
-            pos.add_to_cart()
+            checkout.add_to_cart()
         elif choice == "7":
-            pos.checkout()
+            checkout.checkout()
         elif choice == "8":
-            transactions.view_sales_report()  # <-- CALL HERE
+            view_sales_report()
         elif choice == "9":
             print("Exiting TCCP System. Goodbye!")
             break
