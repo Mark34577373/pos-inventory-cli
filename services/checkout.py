@@ -5,6 +5,7 @@ from config import TAX_RATE
 from models.cart import Cart
 from services.inventory import find_product_by_id, find_products_by_ids
 from services.transaction_service import complete_transaction
+from datetime import datetime 
 
 # Initialize a clean session cart instance
 session_cart = Cart()
@@ -110,11 +111,14 @@ def view_cart(products=None):
         print(f"{product['name']} x{qty} - ${subtotal:.2f}")
     
     print("-------------------------")
-    print(f"Total: ${total:.2f}")
+    # Phase 1 Complete: Change label from Total to Subtotal to prevent tax confusion
+    print(f"Subtotal: ${total:.2f}")
     return total
 
 def checkout():
-    """Processes transaction and returns True if successful, False if failed."""
+    """Processes transaction, applies tax calculation, handles payments, and prints corporate receipts."""
+     
+    
     products = find_products_by_ids(session_cart.get_items())
     subtotal = view_cart(products)
 
@@ -145,7 +149,7 @@ def checkout():
         print("Invalid payment method. Choose 1 for Cash or 2 for Card.")
         return False
 
-    #Handle Cash Change Calculations
+    # Handle Cash Change Calculations
     cash_received = None
     change = None
 
@@ -182,21 +186,41 @@ def checkout():
         print("Checkout failed because the sale could not be recorded. No changes were saved.")
         return False
 
+    # Phase 2 & 3 Complete: Professional Balanced Receipt Engine Layout
     print("\n===================================")
-    print("        RECEIPT GENERATED")
+    print("          TCCP RECEIPT")
     print("===================================")
     print(f"Transaction ID: #{tx_id}")
-    print(f"Payment Method: {payment_method}")
-
-    # Day 4 Tweak: Render calculated change breakdown on physical receipt
+    print(f"Date:           {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print("-----------------------------------")
+    print("ITEMS\n")
+    
+    for product_id, qty in session_cart.get_items().items():
+        product = products[product_id]
+        item_cost = product["price"] * qty
+        # Dynamic alignment to right-justify item rows precisely up to 35 characters
+        print(f"{product['name']} x{qty}".ljust(24) + f"${item_cost:.2f}".rjust(11))
+        
+    print("-----------------------------------")
+    print("Subtotal".ljust(24) + f"${subtotal:.2f}".rjust(11))
+    print(f"Tax ({TAX_RATE*100:.2f}%)".ljust(24) + f"${tax:.2f}".rjust(11))
+    print("-----------------------------------")
+    print("TOTAL".ljust(24) + f"${total:.2f}".rjust(11))
+    print("-----------------------------------")
+    print(f"Payment: {payment_method}")
+    
     if payment_method == "Cash":
-        print(f"Cash Received: ${cash_received:.2f}")
-        print(f"Change: ${change:.2f}")
-
-    print("Thank you for your purchase!")
+        print("Cash Received".ljust(24) + f"${cash_received:.2f}".rjust(11))
+        print("Change".ljust(24) + f"${change:.2f}".rjust(11))
+        
+    print("-----------------------------------")
+    print("        Thank you for your")
+    print("             purchase!")
+    print("===================================")
     
     session_cart.clear()
     return True
+
 
 
 def cancel_sale():

@@ -18,8 +18,7 @@ def show_menu():
     print("8. Exit")
     print("-----------------------------------")
 
-    choice = input("Enter your choice: ")
-    return choice
+    return input("Enter your choice: ").strip()
 
 
 def main():

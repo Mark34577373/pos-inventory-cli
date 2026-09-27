@@ -29,7 +29,7 @@ def complete_transaction(cart_items, total_amount, payment_method):
                     )
 
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            # Day 4 Tweak: Added payment_method column and value binding
+           
             cursor.execute(
                 "INSERT INTO transactions (timestamp, total, payment_method) VALUES (?, ?, ?)",
                 (timestamp, total_amount, payment_method)
@@ -49,79 +49,87 @@ def complete_transaction(cart_items, total_amount, payment_method):
     return transaction_id
 
 def view_sales_report():
-    """Queries SQLite to generate a comprehensive historic sales report."""
-    print("\n===================================")
-    print("        DAILY SALES REPORT")
-    print("===================================")
-    
+    """Show today's sales summary and the full transaction history."""
+    now = datetime.now()
+    today = now.strftime("%Y-%m-%d")
+    display_date = now.strftime("%B %d, %Y").replace(" 0", " ")
+
     conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    cursor.execute("SELECT * FROM transactions ORDER BY id DESC")
-    transactions = cursor.fetchall()
-    
-    if not transactions:
-        print("No transactions recorded in the database yet.")
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM transactions ORDER BY id DESC")
+        transactions = cursor.fetchall()
+
+        today_transactions = [
+            tx for tx in transactions
+            if str(tx["timestamp"]).startswith(today)
+        ]
+
+        total_transactions = len(today_transactions)
+        total_revenue = sum(tx["total"] for tx in today_transactions)
+        average_transaction = (
+            total_revenue / total_transactions if total_transactions else 0.0
+        )
+
+        def payment_method_for(tx):
+            value = tx["payment_method"]
+            method = value.strip().title() if isinstance(value, str) else ""
+            return method if method in ("Cash", "Card") else "Not recorded (legacy sale)"
+
+        cash_revenue = sum(
+            tx["total"] for tx in today_transactions
+            if payment_method_for(tx) == "Cash"
+        )
+        card_revenue = sum(
+            tx["total"] for tx in today_transactions
+            if payment_method_for(tx) == "Card"
+        )
+
+        print("\n===================================")
+        print("        DAILY SALES REPORT")
+        print("===================================")
+        print(f"Date: {display_date}")
+        print(f"Total transactions:  {total_transactions}")
+        print(f"Total revenue:       ${total_revenue:.2f}")
+        print(f"Average transaction: ${average_transaction:.2f}")
+        print(f"Cash revenue:        ${cash_revenue:.2f}")
+        print(f"Card revenue:        ${card_revenue:.2f}")
+        print("===================================")
+
+        print("\n      OVERALL TRANSACTION HISTORY")
+        print("===================================")
+
+        if not transactions:
+            print("No transactions recorded in the database yet.")
+            return
+
+        for tx in transactions:
+            cursor.execute("""
+                SELECT ti.quantity, ti.price, p.name
+                FROM transaction_items ti
+                JOIN products p ON p.id = ti.product_id
+                WHERE ti.transaction_id = ?
+            """, (tx["id"],))
+            items = cursor.fetchall()
+
+            subtotal = sum(item["quantity"] * item["price"] for item in items)
+            tax = tx["total"] - subtotal
+
+            print("-----------------------------------")
+            print(f"Transaction #{tx['id']}")
+            print(f"Time: {tx['timestamp']}")
+            print(f"Payment: {payment_method_for(tx)}")
+            print("\nItems:")
+
+            for item in items:
+                line_total = item["quantity"] * item["price"]
+                description = f"  {item['name']} x{item['quantity']}"
+                print(f"{description:<28}${line_total:>7.2f}")
+
+            print(f"\n{'Subtotal:':<28}${subtotal:>7.2f}")
+            print(f"{'Tax:':<28}${tax:>7.2f}")
+            print(f"{'Total:':<28}${tx['total']:>7.2f}")
+
+        print("-----------------------------------")
+    finally:
         conn.close()
-        return
-
-    grand_total = 0.0
-    for tx in transactions:
-        stored_payment_method = tx["payment_method"]
-        payment_method = (
-            stored_payment_method.strip().title()
-            if isinstance(stored_payment_method, str)
-            else ""
-        )
-        if payment_method not in ("Cash", "Card"):
-            payment_method = "Not recorded (legacy sale)"
-
-        print(
-            f"\nTx ID: #{tx['id']} | "
-            f"Time: {tx['timestamp']} | "
-            f"Payment: {payment_method}"
-        )
-        
-        # Fetch the concrete items matching this transaction ID
-        cursor.execute("""
-            SELECT ti.quantity, ti.price, p.name 
-            FROM transaction_items ti
-            JOIN products p ON ti.product_id = p.id
-            WHERE ti.transaction_id = ?
-        """, (tx['id'],))
-        
-        items = cursor.fetchall()
-        for item in items:
-            print(f"  - {item['name']} x{item['quantity']} (${item['price']:.2f} each)")
-            
-        print(f"Total Sale: ${tx['total']:.2f}")
-        print("-" * 35)
-        grand_total += tx["total"]
-        
-        total_transactions = len(transactions)
-    average_transaction = grand_total / total_transactions
-
-    cash_sales = sum(
-        tx["total"]
-        for tx in transactions
-        if tx["payment_method"] == "Cash"
-    )
-
-    card_sales = sum(
-        tx["total"]
-        for tx in transactions
-        if tx["payment_method"] == "Card"
-    )
-
-    print("\n===================================")
-    print("           SALES SUMMARY")
-    print("===================================")
-    print(f"Total Transactions: {total_transactions}")
-    print(f"Total Revenue:      ${grand_total:.2f}")
-    print(f"Average Sale:       ${average_transaction:.2f}")
-    print(f"Cash Sales:         ${cash_sales:.2f}")
-    print(f"Card Sales:         ${card_sales:.2f}")
-    print("===================================")
-
-    conn.close()
-
