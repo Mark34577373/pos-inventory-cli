@@ -2,7 +2,10 @@
 import sqlite3
 import os
 
-DB_FILE = "tccp.db"
+DB_FILE = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "tccp.db",
+)
 
 def get_db_connection():
     """Establishes a connection to the SQLite database with row factory enabled."""

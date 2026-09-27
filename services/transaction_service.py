@@ -4,6 +4,14 @@ from database.database import get_db_connection
 
 def complete_transaction(cart_items, total_amount, payment_method):
     """Deducts inventory and records a sale atomically in SQLite with payment details."""
+    payment_method = (
+        payment_method.strip().title()
+        if isinstance(payment_method, str)
+        else ""
+    )
+    if payment_method not in ("Cash", "Card"):
+        raise ValueError("Payment method must be Cash or Card.")
+
     conn = get_db_connection()
     try:
         with conn:
@@ -59,10 +67,20 @@ def view_sales_report():
 
     grand_total = 0.0
     for tx in transactions:
-        # Day 4 Tweak: Added explicit payment method printing
-        print(f"\nTx ID: #{tx['id']} | Time: {tx['timestamp']}")
-        print(f"Payment Method: {tx['payment_method']}")
-        print("Items purchased:")
+        stored_payment_method = tx["payment_method"]
+        payment_method = (
+            stored_payment_method.strip().title()
+            if isinstance(stored_payment_method, str)
+            else ""
+        )
+        if payment_method not in ("Cash", "Card"):
+            payment_method = "Not recorded (legacy sale)"
+
+        print(
+            f"\nTx ID: #{tx['id']} | "
+            f"Time: {tx['timestamp']} | "
+            f"Payment: {payment_method}"
+        )
         
         # Fetch the concrete items matching this transaction ID
         cursor.execute("""
@@ -80,7 +98,30 @@ def view_sales_report():
         print("-" * 35)
         grand_total += tx["total"]
         
-    print(f"\nGRAND TOTAL SALES FOR ALL TIME: ${grand_total:.2f}")
+        total_transactions = len(transactions)
+    average_transaction = grand_total / total_transactions
+
+    cash_sales = sum(
+        tx["total"]
+        for tx in transactions
+        if tx["payment_method"] == "Cash"
+    )
+
+    card_sales = sum(
+        tx["total"]
+        for tx in transactions
+        if tx["payment_method"] == "Card"
+    )
+
+    print("\n===================================")
+    print("           SALES SUMMARY")
     print("===================================")
+    print(f"Total Transactions: {total_transactions}")
+    print(f"Total Revenue:      ${grand_total:.2f}")
+    print(f"Average Sale:       ${average_transaction:.2f}")
+    print(f"Cash Sales:         ${cash_sales:.2f}")
+    print(f"Card Sales:         ${card_sales:.2f}")
+    print("===================================")
+
     conn.close()
 

@@ -1,6 +1,7 @@
 # services/checkout.py
 import sqlite3
 
+from config import TAX_RATE
 from models.cart import Cart
 from services.inventory import find_product_by_id, find_products_by_ids
 from services.transaction_service import complete_transaction
@@ -115,9 +116,18 @@ def view_cart(products=None):
 def checkout():
     """Processes transaction and returns True if successful, False if failed."""
     products = find_products_by_ids(session_cart.get_items())
-    total = view_cart(products)
-    if total == 0:
+    subtotal = view_cart(products)
+
+    if subtotal == 0:
         return False
+
+    tax = subtotal * TAX_RATE
+    total = subtotal + tax
+
+    print("-------------------------")
+    print(f"Subtotal: ${subtotal:.2f}")
+    print(f"Tax:      ${tax:.2f}")
+    print(f"Total:    ${total:.2f}")
 
     confirm = input("\nProceed to checkout? (y/n): ").lower()
     if confirm != 'y':
