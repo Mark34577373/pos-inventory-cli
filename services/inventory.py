@@ -1,4 +1,5 @@
 from contextlib import closing
+import math
 
 from database.database import get_db_connection
 
@@ -6,7 +7,7 @@ from database.database import get_db_connection
 def find_product_by_id(product_id):
     with closing(get_db_connection()) as conn:
         row = conn.execute(
-            "SELECT * FROM products WHERE id = ?",
+            "SELECT * FROM products WHERE id = ? AND is_active = 1",
             (product_id,)
         ).fetchone()
 
@@ -21,7 +22,8 @@ def find_products_by_ids(product_ids):
 
     with closing(get_db_connection()) as conn:
         rows = conn.execute(
-            f"SELECT * FROM products WHERE id IN ({placeholders})",
+            f"SELECT * FROM products WHERE id IN ({placeholders}) "
+            "AND is_active = 1",
             product_ids
         ).fetchall()
 
@@ -56,6 +58,109 @@ def get_quantity(prompt):
     return quantity
 
 
+def create_product(name, price, quantity):
+    """Validate and persist one product, returning its new database ID."""
+    if not isinstance(name, str) or not name.strip():
+        raise ValueError("Product name cannot be empty.")
+
+    try:
+        price = float(price)
+    except (TypeError, ValueError) as error:
+        raise ValueError("Price must be a valid number.") from error
+    if not math.isfinite(price) or price < 0:
+        raise ValueError("Price must be a finite non-negative number.")
+
+    if isinstance(quantity, bool) or not isinstance(quantity, int):
+        raise ValueError("Quantity must be a whole number.")
+    if quantity < 0:
+        raise ValueError("Quantity cannot be negative.")
+
+    with closing(get_db_connection()) as conn:
+        with conn:
+            cursor = conn.execute(
+                "INSERT INTO products (name, price, quantity) VALUES (?, ?, ?)",
+                (name.strip(), price, quantity),
+            )
+            return cursor.lastrowid
+
+
+def set_product_quantity(product_id, quantity):
+    """Set a product's stock quantity and return its ID."""
+    if isinstance(quantity, bool) or not isinstance(quantity, int):
+        raise ValueError("Quantity must be a whole number.")
+    if quantity < 0:
+        raise ValueError("Quantity cannot be negative.")
+
+    with closing(get_db_connection()) as conn:
+        with conn:
+            cursor = conn.execute(
+                "UPDATE products SET quantity = ? "
+                "WHERE id = ? AND is_active = 1",
+                (quantity, product_id),
+            )
+            if cursor.rowcount != 1:
+                raise ValueError("Product no longer exists in inventory.")
+
+    return product_id
+
+
+def deactivate_product(product_id):
+    """Remove a product from active inventory without deleting sales history."""
+    with closing(get_db_connection()) as conn:
+        with conn:
+            cursor = conn.execute(
+                "UPDATE products SET is_active = 0 "
+                "WHERE id = ? AND is_active = 1",
+                (product_id,),
+            )
+            if cursor.rowcount != 1:
+                raise ValueError("Product no longer exists in active inventory.")
+
+    return product_id
+
+
+def remove_product_by_name(name):
+    """Deactivate one active product by exact, case-insensitive name."""
+    if not isinstance(name, str) or not name.strip():
+        raise ValueError("Product name cannot be empty.")
+
+    with closing(get_db_connection()) as conn:
+        matches = conn.execute(
+            "SELECT id FROM products "
+            "WHERE is_active = 1 AND name = ? COLLATE NOCASE "
+            "ORDER BY id",
+            (name.strip(),),
+        ).fetchall()
+
+    if not matches:
+        raise ValueError(f'No active product named "{name.strip()}" was found.')
+    if len(matches) > 1:
+        raise ValueError(
+            f'More than one active product is named "{name.strip()}". '
+            "Rename products so the name is unique before removing one."
+        )
+
+    return deactivate_product(matches[0]["id"])
+
+
+def remove_product_by_id(product_id, name):
+    """Deactivate a product only when its ID and name both match."""
+    if isinstance(product_id, bool) or not isinstance(product_id, int):
+        raise ValueError("Product ID must be a whole number.")
+    if product_id <= 0:
+        raise ValueError("Product ID must be greater than zero.")
+    if not isinstance(name, str) or not name.strip():
+        raise ValueError("Product name cannot be empty.")
+
+    product = find_product_by_id(product_id)
+    if product is None:
+        raise ValueError(f"No active product with ID {product_id} was found.")
+    if product["name"].casefold() != name.strip().casefold():
+        raise ValueError(f"Product name does not match ID {product_id}.")
+
+    return deactivate_product(product_id)
+
+
 def display_product(product):
     print(f"\nProduct ID: {product['id']}")
     print(f"Product: {product['name']}")
@@ -69,7 +174,9 @@ def view_inventory():
     print("-------------------------")
 
     with closing(get_db_connection()) as conn:
-        products = conn.execute("SELECT * FROM products").fetchall()
+        products = conn.execute(
+            "SELECT * FROM products WHERE is_active = 1"
+        ).fetchall()
 
     if not products:
         print("No products in inventory.")
@@ -105,13 +212,11 @@ def add_product():
     if quantity is None:
         return
 
-    with closing(get_db_connection()) as conn:
-        with conn:
-            cursor = conn.execute(
-                "INSERT INTO products (name, price, quantity) VALUES (?, ?, ?)",
-                (name, price, quantity)
-            )
-            product_id = cursor.lastrowid
+    try:
+        product_id = create_product(name, price, quantity)
+    except ValueError as error:
+        print(error)
+        return
 
     print(f"\nProduct added successfully with ID {product_id}.")
 
@@ -128,9 +233,11 @@ def remove_product():
         print(f"Product with ID {product_id} not found.")
         return
 
-    with closing(get_db_connection()) as conn:
-        with conn:
-            conn.execute("DELETE FROM products WHERE id = ?", (product_id,))
+    try:
+        deactivate_product(product_id)
+    except ValueError as error:
+        print(error)
+        return
 
     print(f"Product with ID {product_id} has been removed.")
 
@@ -185,7 +292,7 @@ def update_product():
         with conn:
             conn.execute(
                 "UPDATE products SET name = ?, price = ?, quantity = ? "
-                "WHERE id = ?",
+                "WHERE id = ? AND is_active = 1",
                 (new_name, new_price, new_quantity, product_id)
             )
 
@@ -198,12 +305,13 @@ def search_product():
     with closing(get_db_connection()) as conn:
         if search_term.isdigit():
             row = conn.execute(
-                "SELECT * FROM products WHERE id = ?",
+                "SELECT * FROM products WHERE id = ? AND is_active = 1",
                 (int(search_term),)
             ).fetchone()
         else:
             row = conn.execute(
-                "SELECT * FROM products WHERE LOWER(name) = ?",
+                "SELECT * FROM products "
+                "WHERE LOWER(name) = ? AND is_active = 1",
                 (search_term.lower(),)
             ).fetchone()
 

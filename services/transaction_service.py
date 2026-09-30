@@ -20,7 +20,7 @@ def complete_transaction(cart_items, total_amount, payment_method):
             for item in cart_items:
                 cursor.execute(
                     "UPDATE products SET quantity = quantity - ? "
-                    "WHERE id = ? AND quantity >= ?",
+                    "WHERE id = ? AND quantity >= ? AND is_active = 1",
                     (item["qty"], item["id"], item["qty"])
                 )
                 if cursor.rowcount != 1:

@@ -24,7 +24,8 @@ def initialize_database():
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL,
         price REAL NOT NULL,
-        quantity INTEGER NOT NULL
+        quantity INTEGER NOT NULL,
+        is_active INTEGER NOT NULL DEFAULT 1
     )
     """)
 
@@ -50,6 +51,14 @@ def initialize_database():
         FOREIGN KEY (product_id) REFERENCES products (id)
     )
     """)
+
+    cursor.execute("PRAGMA table_info(products)")
+    product_columns = [column["name"] for column in cursor.fetchall()]
+    if "is_active" not in product_columns:
+        cursor.execute(
+            "ALTER TABLE products "
+            "ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1"
+        )
 
  # Add payment_method to existing databases if it doesn't exist
     cursor.execute("PRAGMA table_info(transactions)")
