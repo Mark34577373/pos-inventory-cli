@@ -1,0 +1,81 @@
+
+{% extends "base.html" %}
+
+{% block title %}Inventory | TCCP{% endblock %}
+{% block page_heading %}Inventory{% endblock %}
+
+{% block content %}
+<section class="welcome-row">
+    <div>
+        <h1>Inventory</h1>
+        <p>Manage your products, prices, and stock levels.</p>
+    </div>
+    <div class="inventory-count">
+        {{ total_products }} products found
+    </div>
+</section>
+
+<section class="section-heading">
+    <div>
+        <h2>All products</h2>
+        <p>Search your current inventory by product name or ID.</p>
+    </div>
+
+    <form class="search-form" action="{{ url_for('inventory') }}" method="get">
+        <input
+            type="search"
+            name="q"
+            placeholder="Search products..."
+            value="{{ search_term|default('') }}"
+        >
+        <button type="submit">Search</button>
+        {% if search_term|default('') %}
+            <a class="clear-search" href="{{ url_for('inventory') }}">Clear</a>
+        {% endif %}
+    </form>
+</section>
+
+<section class="inventory-table-wrap">
+    <table class="inventory-table">
+        <thead>
+            <tr>
+                <th>Product</th>
+                <th>Product ID</th>
+                <th>Unit price</th>
+                <th>Quantity</th>
+                <th>Stock status</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for product in products %}
+            <tr>
+                <td>
+                    <div class="table-product">
+                        <span class="product-icon">P</span>
+                        <span>{{ product.name }}</span>
+                    </div>
+                </td>
+                <td>#{{ product.id }}</td>
+                <td>${{ "%.2f"|format(product.price_cents / 100) }}</td>
+                <td>{{ product.quantity }}</td>
+                <td>
+                    {% if product.quantity <= 0 %}
+                        <span class="stock-label stock-out">Out of stock</span>
+                    {% elif product.quantity <= 5 %}
+                        <span class="stock-label stock-low">Low stock</span>
+                    {% else %}
+                        <span class="stock-label stock-good">In stock</span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="5" class="table-empty">
+                    No matching products found.
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</section>
+{% endblock %}

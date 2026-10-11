@@ -1,0 +1,18 @@
+
+{% extends "base.html" %}
+
+{% block title %}Page not found | TCCP{% endblock %}
+{% block page_heading %}Page not found{% endblock %}
+
+{% block content %}
+<section class="error-page">
+    <span class="error-code">404</span>
+    <h2>We couldn't find that page.</h2>
+    <p class="muted">
+        The page may have moved or the address may be incorrect.
+    </p>
+    <a class="primary-button" href="{{ url_for('dashboard') }}">
+        Return to dashboard →
+    </a>
+</section>
+{% endblock %}

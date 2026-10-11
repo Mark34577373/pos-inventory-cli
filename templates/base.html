@@ -1,0 +1,117 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <meta
+        name="description"
+        content="TCCP point-of-sale and inventory management dashboard."
+    >
+
+    <title>{% block title %}TCCP{% endblock %}</title>
+
+    <link
+        rel="stylesheet"
+        href="{{ url_for('static', filename='css/style.css') }}"
+    >
+</head>
+
+<body>
+    <div class="app-shell">
+        <aside class="sidebar">
+            <a class="brand" href="{{ url_for('dashboard') }}">
+                <span class="brand-mark">T</span>
+
+                <span class="brand-copy">
+                    <strong>TCCP</strong>
+                    <small>POINT OF SALE</small>
+                </span>
+            </a>
+
+            <div class="nav-label">WORKSPACE</div>
+
+            <nav class="navigation" aria-label="Main navigation">
+                <a
+                    class="nav-link {% if request.endpoint == 'dashboard' %}active{% endif %}"
+                    href="{{ url_for('dashboard') }}"
+                    {% if request.endpoint == 'dashboard' %}aria-current="page"{% endif %}
+                >
+                    <span class="nav-icon">▦</span>
+                    <span>Dashboard</span>
+                </a>
+
+                <a
+                    class="nav-link {% if request.endpoint == 'inventory' %}active{% endif %}"
+                    href="{{ url_for('inventory') }}"
+                    {% if request.endpoint == 'inventory' %}aria-current="page"{% endif %}
+                >
+                    <span class="nav-icon">▤</span>
+                    <span>Inventory</span>
+                </a>
+
+                <a class="nav-link nav-disabled" aria-disabled="true">
+                    <span class="nav-icon">＋</span>
+                    <span>New sale</span>
+                    <span class="nav-soon">Soon</span>
+                </a>
+
+                <a class="nav-link nav-disabled" aria-disabled="true">
+                    <span class="nav-icon">↻</span>
+                    <span>Transactions</span>
+                    <span class="nav-soon">Soon</span>
+                </a>
+
+                <a class="nav-link nav-disabled" aria-disabled="true">
+                    <span class="nav-icon">▥</span>
+                    <span>Reports</span>
+                    <span class="nav-soon">Soon</span>
+                </a>
+            </nav>
+
+            <div class="sidebar-spacer"></div>
+
+            <div class="sidebar-status">
+                <span class="status-dot"></span>
+                <span>
+                    <strong>Local workspace</strong>
+                    <small>Using SQLite database</small>
+                </span>
+            </div>
+
+            <div class="sidebar-footer">
+                TCCP · Development version
+            </div>
+        </aside>
+
+        <main class="main-content">
+            <header class="topbar">
+                <div class="topbar-heading">
+                    <span class="eyebrow">THE CREDIT CARD PROCESSOR</span>
+                    <h1 class="page-heading">
+                        {% block page_heading %}Dashboard{% endblock %}
+                    </h1>
+                </div>
+
+                <div class="user-chip">
+                    <span class="avatar">T</span>
+                    <span class="user-copy">
+                        <strong>Store Admin</strong>
+                        <small>Administrator</small>
+                    </span>
+                </div>
+            </header>
+
+            <section class="page-content">
+                {% block content %}{% endblock %}
+
+                <footer class="page-footer">
+                    <span>TCCP Point of Sale</span>
+                    <span>Inventory management workspace</span>
+                </footer>
+            </section>
+        </main>
+    </div>
+</body>
+</html>
