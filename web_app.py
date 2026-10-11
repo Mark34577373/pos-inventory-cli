@@ -187,17 +187,94 @@ def get_transactions_for_period(start_date, end_date):
     finally:
         conn.close()
 
+# DAY 12 DASHBOARD ROUTE
+# Replace your existing @app.route("/") dashboard function with this version.
+# Keep your existing imports and add: from datetime import date, timedelta
+# Ensure get_db_connection is imported from database.database.
+
+from datetime import date, timedelta
+
 
 @app.route("/")
 def dashboard():
     products = list_active_products()
     summary = get_inventory_summary(products)
 
+    # Use the same local dates and date(timestamp) filtering as Reports.
+    today = date.today()
+    start_date = today - timedelta(days=6)
+
+    conn = get_db_connection()
+    try:
+        today_summary = conn.execute(
+            """
+            SELECT
+                COALESCE(SUM(total_cents), 0) AS today_sales_cents,
+                COUNT(*) AS today_transaction_count
+            FROM transactions
+            WHERE date(timestamp) = ?
+            """,
+            (today.isoformat(),),
+        ).fetchone()
+
+        recent_rows = conn.execute(
+            """
+            SELECT id, timestamp, total_cents, payment_method
+            FROM transactions
+            ORDER BY timestamp DESC, id DESC
+            LIMIT 5
+            """
+        ).fetchall()
+
+        daily_rows = conn.execute(
+            """
+            SELECT
+                date(timestamp) AS sale_date,
+                COUNT(*) AS transaction_count,
+                COALESCE(SUM(total_cents), 0) AS sales_cents
+            FROM transactions
+            WHERE date(timestamp) >= ?
+              AND date(timestamp) <= ?
+            GROUP BY date(timestamp)
+            ORDER BY sale_date ASC
+            """,
+            (start_date.isoformat(), today.isoformat()),
+        ).fetchall()
+    finally:
+        conn.close()
+
+    # Index the database results by date.
+    daily_by_date = {
+        row["sale_date"]: row
+        for row in daily_rows
+    }
+
+    # Always build seven days, including days with zero sales.
+    sales_chart = []
+
+    for offset in range(7):
+        day = start_date + timedelta(days=offset)
+        day_key = day.isoformat()
+        row = daily_by_date.get(day_key)
+
+        sales_chart.append({
+            "date": day_key,
+            "label": day.strftime("%a"),
+            "sales_cents": row["sales_cents"] if row else 0,
+            "transaction_count": (
+                row["transaction_count"] if row else 0
+            ),
+        })
+
     return render_template(
         "dashboard.html",
         products=products,
         tax_rate=TAX_RATE,
         **summary,
+        today_sales_cents=today_summary["today_sales_cents"],
+        today_transaction_count=today_summary["today_transaction_count"],
+        recent_transactions=recent_rows,
+        sales_chart=sales_chart,
     )
 
 

@@ -3271,3 +3271,289 @@ input:focus-visible {
         max-width: 100%;
     }
 }
+/* DAY 12 â€” dashboard analytics additions. Append to static/css/style.css. */
+.day12-stats { margin-bottom: 22px; }
+.day12-dashboard-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.25fr) minmax(320px, 1fr);
+    gap: 22px;
+    align-items: stretch;
+    margin-bottom: 24px;
+}
+.day12-dashboard-grid > .content-panel { min-width: 0; margin-bottom: 0; }
+.day12-chart-panel, .day12-recent-panel, .day12-inventory-panel { padding: 24px; }
+.day12-chart {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 12px;
+    min-height: 230px;
+    padding: 18px 4px 0;
+}
+.day12-chart-column {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 9px;
+}
+.day12-chart-value {
+    min-height: 15px;
+    color: var(--text-muted, #64748b);
+    font-size: 10px;
+    font-weight: 650;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+.day12-chart-track {
+    display: flex;
+    align-items: flex-end;
+    width: min(100%, 34px);
+    height: 150px;
+    overflow: hidden;
+    background: var(--surface-subtle, #f1f5f9);
+    border-radius: 7px 7px 4px 4px;
+}
+.day12-chart-bar {
+    width: 100%;
+    min-height: 3px;
+    background: #93c5fd;
+    border-radius: 7px 7px 3px 3px;
+    transition: height .2s ease;
+}
+.day12-chart-bar.is-today { background: #2563eb; }
+.day12-chart-label {
+    color: var(--text-muted, #64748b);
+    font-size: 11px;
+    font-weight: 650;
+}
+.day12-chart-empty {
+    margin: 12px 0 0;
+    color: var(--text-muted, #64748b);
+    font-size: 12px;
+    line-height: 1.6;
+}
+.day12-recent-list { display: flex; flex-direction: column; }
+.day12-recent-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+    padding: 15px 0;
+    color: inherit;
+    text-decoration: none;
+    border-bottom: 1px solid var(--border, #edf0f4);
+}
+.day12-recent-item:first-child { padding-top: 4px; }
+.day12-recent-item:last-child { padding-bottom: 4px; border-bottom: 0; }
+.day12-recent-item:hover .day12-transaction-copy strong { color: #2563eb; }
+.day12-transaction-icon {
+    display: flex;
+    flex: 0 0 38px;
+    align-items: center;
+    justify-content: center;
+    width: 38px;
+    height: 38px;
+    color: #2563eb;
+    font-size: 17px;
+    background: #eff6ff;
+    border-radius: 11px;
+}
+.day12-transaction-copy { display: flex; flex: 1 1 auto; flex-direction: column; gap: 5px; min-width: 0; }
+.day12-transaction-copy strong { font-size: 13px; font-weight: 750; transition: color .15s ease; }
+.day12-transaction-copy small {
+    overflow: hidden;
+    color: var(--text-muted, #64748b);
+    font-size: 11px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.day12-transaction-total {
+    flex: 0 0 auto;
+    color: var(--text, #111827);
+    font-size: 13px;
+    font-weight: 750;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+.day12-inventory-panel { margin-bottom: 24px; }
+@media (max-width: 1100px) {
+    .day12-dashboard-grid { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 700px) {
+    .day12-chart-panel, .day12-recent-panel, .day12-inventory-panel { padding: 17px; }
+    .day12-chart { gap: 6px; min-height: 200px; padding-right: 0; padding-left: 0; }
+    .day12-chart-track { height: 125px; }
+    .day12-chart-value { font-size: 9px; }
+    .day12-transaction-icon { flex-basis: 32px; width: 32px; height: 32px; }
+    .day12-transaction-copy small { max-width: 155px; }
+}
+
+
+/* Day 12: Spacious seven-day sales chart */
+
+.day12-chart {
+    width: 100%;
+    min-width: 0;
+    margin-top: 28px;
+    padding: 12px 4px 4px;
+    box-sizing: border-box;
+}
+
+.day12-chart-bars {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    align-items: stretch;
+    column-gap: 18px;
+    width: 100%;
+}
+
+.day12-chart-column {
+    display: grid;
+    grid-template-rows: 24px minmax(150px, 1fr) 28px;
+    align-items: end;
+    justify-items: center;
+    min-width: 0;
+    height: 250px;
+}
+
+.day12-chart-value {
+    align-self: center;
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.4;
+    font-weight: 600;
+    color: #334155;
+    text-align: center;
+    white-space: nowrap;
+}
+
+.day12-chart-track {
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    min-height: 150px;
+    overflow: hidden;
+    border-radius: 7px 7px 0 0;
+    background: #f1f5f9;
+}
+
+.day12-chart-bar {
+    width: 60%;
+    min-height: 0;
+    border-radius: 7px 7px 0 0;
+    background: #3978e8;
+    transition: height 0.25s ease;
+}
+
+.day12-chart-label {
+    align-self: center;
+    margin: 0;
+    padding-top: 8px;
+    font-size: 13px;
+    line-height: 1.4;
+    font-weight: 500;
+    color: #64748b;
+    text-align: center;
+    white-space: nowrap;
+}
+
+@media (max-width: 600px) {
+    .day12-chart-bars {
+        column-gap: 6px;
+    }
+
+    .day12-chart-column {
+        grid-template-rows: 22px minmax(110px, 1fr) 26px;
+        height: 200px;
+    }
+
+    .day12-chart-value,
+    .day12-chart-label {
+        font-size: 10px;
+    }
+
+    .day12-chart-bar {
+        width: 72%;
+    }
+}
+
+/* Day 12 chart layout override */
+.day12-panel .day12-chart {
+    display: block !important;
+    width: 100% !important;
+    max-width: none !important;
+    margin: 28px 0 12px !important;
+    padding: 12px 0 !important;
+    overflow-x: auto;
+    box-sizing: border-box;
+}
+
+.day12-panel .day12-chart-bars {
+    display: grid !important;
+    grid-template-columns: repeat(7, minmax(70px, 1fr)) !important;
+    gap: 20px !important;
+    align-items: stretch !important;
+    width: 100% !important;
+    min-width: 610px;
+}
+
+.day12-panel .day12-chart-column {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: flex-end !important;
+    gap: 12px !important;
+    width: 100% !important;
+    height: 260px !important;
+    min-width: 0 !important;
+}
+
+.day12-panel .day12-chart-value {
+    display: block !important;
+    width: 100% !important;
+    min-height: 20px;
+    margin: 0 !important;
+    font-size: 13px !important;
+    line-height: 20px !important;
+    text-align: center !important;
+    white-space: nowrap !important;
+}
+
+.day12-panel .day12-chart-track {
+    display: flex !important;
+    align-items: flex-end !important;
+    justify-content: center !important;
+    flex: 1 1 auto !important;
+    width: 100% !important;
+    height: 175px !important;
+    min-height: 175px !important;
+    overflow: hidden !important;
+    border-radius: 8px 8px 0 0 !important;
+    background: #f1f5f9 !important;
+}
+
+
+.day12-panel .day12-chart-bar {
+    display: block !important;
+    flex: 0 0 auto !important;
+    width: 100% !important;
+    max-width: none !important;
+    border-radius: 7px 7px 0 0 !important;
+    background: #3978e8 !important;
+}
+
+
+.day12-panel .day12-chart-label {
+    display: block !important;
+    width: 100% !important;
+    min-height: 20px;
+    margin: 0 !important;
+    padding: 0 !important;
+    font-size: 13px !important;
+    line-height: 20px !important;
+    text-align: center !important;
+    white-space: nowrap !important;
+}
