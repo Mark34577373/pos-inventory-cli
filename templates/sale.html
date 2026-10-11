@@ -1,0 +1,282 @@
+
+{% extends "base.html" %}
+
+{% block title %}New Sale | TCCP{% endblock %}
+{% block page_heading %}New sale{% endblock %}
+
+{% block content %}
+<section class="sale-intro">
+    <div>
+        <div class="eyebrow content-eyebrow">POINT OF SALE</div>
+        <h2 class="welcome-title">Create a sale</h2>
+        <p class="muted">Select products, review the cart, and complete checkout.</p>
+    </div>
+    <a class="secondary-button" href="{{ url_for('inventory') }}">Manage inventory</a>
+</section>
+
+<div class="sale-layout">
+    <section class="sale-products-panel">
+        <div class="panel-heading">
+            <div>
+                <h2>Products</h2>
+                <p class="muted">Add available inventory to this sale.</p>
+            </div>
+            <span class="result-count">{{ products|length }} shown</span>
+        </div>
+
+        <form method="get" action="{{ url_for('sale') }}" class="sale-search">
+            <label class="sr-only" for="sale-search-input">Search products</label>
+            <input
+                id="sale-search-input"
+                type="search"
+                name="q"
+                value="{{ search_term }}"
+                placeholder="Search by product name..."
+            >
+            <button class="secondary-button" type="submit">Search</button>
+            {% if search_term %}
+                <a class="text-link" href="{{ url_for('sale') }}">Clear</a>
+            {% endif %}
+        </form>
+
+        {% if products %}
+        <div class="sale-product-list">
+            {% for product in products %}
+            <article class="sale-product-card">
+                <div class="product-initial">{{ product.name[:1]|upper }}</div>
+
+                <div class="sale-product-info">
+                    <h3>{{ product.name }}</h3>
+                    <p class="muted">Product #{{ product.id }}</p>
+                    <div class="sale-product-bottom">
+                        <strong class="sale-product-price">
+                            ${{ "%.2f"|format(product.price_cents / 100) }}
+                        </strong>
+
+                        {% if product.quantity <= 0 %}
+                            <span class="stock-pill stock-out">Out of stock</span>
+                        {% elif product.quantity <= 5 %}
+                            <span class="stock-pill stock-low">
+                                {{ product.quantity }} left
+                            </span>
+                        {% else %}
+                            <span class="stock-pill stock-good">
+                                {{ product.quantity }} in stock
+                            </span>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <form method="post" action="{{ url_for('sale_add') }}" class="add-product-form">
+                    <input type="hidden" name="product_id" value="{{ product.id }}">
+                    <input type="hidden" name="return_q" value="{{ search_term }}">
+
+                    <label for="add-quantity-{{ product.id }}">Qty</label>
+                    <input
+                        id="add-quantity-{{ product.id }}"
+                        name="quantity"
+                        type="number"
+                        min="1"
+                        max="{{ product.quantity if product.quantity > 0 else 1 }}"
+                        value="1"
+                        step="1"
+                        required
+                        {% if product.quantity <= 0 %}disabled{% endif %}
+                    >
+
+                    <button
+                        type="submit"
+                        class="primary-button add-product-button"
+                        {% if product.quantity <= 0 %}disabled{% endif %}
+                    >
+                        Add
+                    </button>
+                </form>
+            </article>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="empty-state">
+            <div class="empty-state-icon">⌕</div>
+            <h3>No products found</h3>
+            <p class="muted">
+                {% if search_term %}
+                    Try a different search term.
+                {% else %}
+                    Add products in inventory before creating a sale.
+                {% endif %}
+            </p>
+            <a class="primary-button" href="{{ url_for('add_product') }}">Add a product</a>
+        </div>
+        {% endif %}
+    </section>
+
+    <aside class="sale-cart-panel">
+        <div class="panel-heading cart-heading">
+            <div>
+                <h2>Current cart</h2>
+                <p class="muted">Review quantities before payment.</p>
+            </div>
+            <span class="cart-count">{{ items|length }} item{% if items|length != 1 %}s{% endif %}</span>
+        </div>
+
+        {% if unavailable_items %}
+        <div class="cart-warning">
+            <strong>Unavailable cart entries</strong>
+            <p>{{ unavailable_items|join(", ") }}</p>
+            <p>Remove unavailable items before checking out.</p>
+        </div>
+        {% endif %}
+
+        {% if items %}
+        <div class="cart-items">
+            {% for item in items %}
+            <article class="cart-item">
+                <div class="cart-item-main">
+                    <div>
+                        <h3>{{ item.product.name }}</h3>
+                        <p class="muted">
+                            ${{ "%.2f"|format(item.price_cents / 100) }} each
+                        </p>
+                    </div>
+
+                    <strong class="cart-line-total">
+                        ${{ "%.2f"|format(item.line_total_cents / 100) }}
+                    </strong>
+                </div>
+
+                {% if not item.stock_ok %}
+                <p class="cart-stock-error">
+                    Only {{ item.available_quantity }} currently in stock.
+                </p>
+                {% endif %}
+
+                <div class="cart-item-actions">
+                    <form
+                        method="post"
+                        action="{{ url_for('sale_update', product_id=item.product.id) }}"
+                        class="cart-quantity-form"
+                    >
+                        <label for="cart-qty-{{ item.product.id }}">Qty</label>
+                        <input
+                            id="cart-qty-{{ item.product.id }}"
+                            name="quantity"
+                            type="number"
+                            min="0"
+                            max="{{ item.available_quantity if item.available_quantity > 0 else 1000000 }}"
+                            value="{{ item.quantity }}"
+                            step="1"
+                            required
+                        >
+                        <button class="small-button" type="submit">Update</button>
+                    </form>
+
+                    <form
+                        method="post"
+                        action="{{ url_for('sale_remove', product_id=item.product.id) }}"
+                    >
+                        <button class="remove-link" type="submit">Remove</button>
+                    </form>
+                </div>
+            </article>
+            {% endfor %}
+        </div>
+
+        <div class="cart-totals">
+            <div>
+                <span>Subtotal</span>
+                <strong>${{ "%.2f"|format(subtotal_cents / 100) }}</strong>
+            </div>
+            <div>
+                <span>Tax ({{ "%.2f"|format(tax_rate_percent) }}%)</span>
+                <strong>${{ "%.2f"|format(tax_cents / 100) }}</strong>
+            </div>
+            <div class="cart-grand-total">
+                <span>Total due</span>
+                <strong>${{ "%.2f"|format(total_cents / 100) }}</strong>
+            </div>
+        </div>
+
+        <form method="post" action="{{ url_for('sale_checkout') }}" class="checkout-form">
+            <div class="form-field">
+                <label for="payment-method">Payment method</label>
+                <select id="payment-method" name="payment_method" required>
+                    <option value="Cash">Cash</option>
+                    <option value="Card">Card (simulated)</option>
+                </select>
+            </div>
+
+            <div class="form-field" id="cash-field">
+                <label for="cash-received">Cash received ($)</label>
+                <input
+                    id="cash-received"
+                    name="cash_received"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    placeholder="Enter amount received"
+                >
+                <span class="field-help">
+                    Must be at least ${{ "%.2f"|format(total_cents / 100) }}.
+                </span>
+            </div>
+
+            <p class="payment-notice" id="card-notice" hidden>
+                Card payment is a demo only. No card details are collected or processed.
+            </p>
+
+            {% if has_stock_problem %}
+            <div class="cart-warning">
+                Resolve stock issues before completing this sale.
+            </div>
+            {% endif %}
+
+            <button
+                type="submit"
+                class="primary-button checkout-button"
+                {% if has_stock_problem %}disabled{% endif %}
+            >
+                Complete sale · ${{ "%.2f"|format(total_cents / 100) }}
+            </button>
+        </form>
+
+        <form method="post" action="{{ url_for('sale_cancel') }}"
+              onsubmit="return confirm('Cancel this sale and clear the cart?');">
+            <button class="cancel-sale-button" type="submit">Cancel sale</button>
+        </form>
+
+        {% else %}
+        <div class="empty-cart">
+            <div class="empty-cart-icon">＋</div>
+            <h3>Your cart is empty</h3>
+            <p class="muted">Add a product from the list to begin a sale.</p>
+        </div>
+        {% endif %}
+    </aside>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    (() => {
+        const paymentMethod = document.getElementById("payment-method");
+        const cashField = document.getElementById("cash-field");
+        const cashInput = document.getElementById("cash-received");
+        const cardNotice = document.getElementById("card-notice");
+
+        if (!paymentMethod || !cashField || !cashInput || !cardNotice) {
+            return;
+        }
+
+        function updatePaymentFields() {
+            const isCash = paymentMethod.value === "Cash";
+            cashField.hidden = !isCash;
+            cashInput.required = isCash;
+            cardNotice.hidden = isCash;
+        }
+
+        paymentMethod.addEventListener("change", updatePaymentFields);
+        updatePaymentFields();
+    })();
+</script>
+{% endblock %}

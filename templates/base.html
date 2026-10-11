@@ -20,23 +20,28 @@
             </a>
 
             <div class="nav-label">WORKSPACE</div>
+
             <nav class="navigation" aria-label="Main navigation">
                 <a class="nav-link {% if request.endpoint == 'dashboard' %}active{% endif %}"
                    href="{{ url_for('dashboard') }}">
                     <span class="nav-icon">▦</span><span>Dashboard</span>
                 </a>
+
                 <a class="nav-link {% if request.endpoint == 'inventory' %}active{% endif %}"
                    href="{{ url_for('inventory') }}">
                     <span class="nav-icon">▤</span><span>Inventory</span>
                 </a>
-                <a class="nav-link nav-disabled" aria-disabled="true">
+
+                <a class="nav-link {% if request.endpoint in ['sale', 'sale_add', 'sale_update', 'sale_remove', 'sale_cancel', 'sale_checkout'] %}active{% endif %}"
+                   href="{{ url_for('sale') }}">
                     <span class="nav-icon">＋</span><span>New sale</span>
-                    <span class="nav-soon">Soon</span>
                 </a>
+
                 <a class="nav-link nav-disabled" aria-disabled="true">
                     <span class="nav-icon">↻</span><span>Transactions</span>
                     <span class="nav-soon">Soon</span>
                 </a>
+
                 <a class="nav-link nav-disabled" aria-disabled="true">
                     <span class="nav-icon">▥</span><span>Reports</span>
                     <span class="nav-soon">Soon</span>
@@ -44,6 +49,7 @@
             </nav>
 
             <div class="sidebar-spacer"></div>
+
             <div class="sidebar-status">
                 <span class="status-dot"></span>
                 <span>
@@ -51,6 +57,7 @@
                     <small>Using SQLite database</small>
                 </span>
             </div>
+
             <div class="sidebar-footer">TCCP · Development version</div>
         </aside>
 
@@ -60,6 +67,7 @@
                     <span class="eyebrow">THE CREDIT CARD PROCESSOR</span>
                     <h1 class="page-heading">{% block page_heading %}Dashboard{% endblock %}</h1>
                 </div>
+
                 <div class="user-chip">
                     <span class="avatar">T</span>
                     <span class="user-copy">
@@ -91,5 +99,7 @@
             </section>
         </main>
     </div>
+
+    {% block scripts %}{% endblock %}
 </body>
 </html>

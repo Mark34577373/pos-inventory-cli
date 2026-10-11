@@ -1,0 +1,143 @@
+
+{% extends "base.html" %}
+
+{% block title %}Receipt #{{ receipt["transaction_id"] }} | TCCP{% endblock %}
+{% block page_heading %}Sale complete{% endblock %}
+
+{% block content %}
+<section class="receipt-page">
+    <div class="receipt-success">
+        <span class="receipt-success-icon">✓</span>
+        <div>
+            <h2>Transaction completed</h2>
+            <p class="muted">The sale was recorded successfully.</p>
+        </div>
+    </div>
+
+    <article class="receipt-paper">
+        <header class="receipt-header">
+            <div class="receipt-brand-mark">T</div>
+            <h2>TCCP</h2>
+            <p>THE CREDIT CARD PROCESSOR</p>
+            <div class="receipt-divider"></div>
+            <h3>SALES RECEIPT</h3>
+        </header>
+
+        <div class="receipt-metadata">
+            <div>
+                <span>Transaction</span>
+                <strong>#{{ receipt["transaction_id"] }}</strong>
+            </div>
+
+            <div>
+                <span>Date</span>
+                <strong>{{ receipt["timestamp"] }}</strong>
+            </div>
+
+            <div>
+                <span>Payment method</span>
+                <strong>
+                    {% if receipt["payment_method"] == "Card" %}
+                        Card (simulated)
+                    {% else %}
+                        {{ receipt["payment_method"] }}
+                    {% endif %}
+                </strong>
+            </div>
+        </div>
+
+        <div class="receipt-divider"></div>
+
+        <div class="receipt-items">
+            <div class="receipt-column-head">
+                <span>Item</span>
+                <span>Total</span>
+            </div>
+
+            {% for item in receipt["items"] %}
+            <div class="receipt-line">
+                <div>
+                    <strong>{{ item["name"] }}</strong>
+                    <small>
+                        {{ item["quantity"] }} ×
+                        ${{ "%.2f"|format(item["unit_price_cents"] / 100) }}
+                    </small>
+                </div>
+
+                <strong>
+                    ${{ "%.2f"|format(item["line_total_cents"] / 100) }}
+                </strong>
+            </div>
+            {% endfor %}
+        </div>
+
+        <div class="receipt-divider"></div>
+
+        <div class="receipt-totals">
+            <div>
+                <span>Subtotal</span>
+                <strong>
+                    ${{ "%.2f"|format(receipt["subtotal_cents"] / 100) }}
+                </strong>
+            </div>
+
+            <div>
+                <span>
+                    Tax ({{ "%.2f"|format(receipt["tax_rate_percent"]) }}%)
+                </span>
+                <strong>
+                    ${{ "%.2f"|format(receipt["tax_cents"] / 100) }}
+                </strong>
+            </div>
+
+            <div class="receipt-total">
+                <span>Total paid</span>
+                <strong>
+                    ${{ "%.2f"|format(receipt["total_cents"] / 100) }}
+                </strong>
+            </div>
+
+            {% if receipt["payment_method"] == "Cash" %}
+            <div>
+                <span>Cash received</span>
+                <strong>
+                    ${{ "%.2f"|format(receipt["cash_received_cents"] / 100) }}
+                </strong>
+            </div>
+
+            <div>
+                <span>Change</span>
+                <strong>
+                    ${{ "%.2f"|format(receipt["change_cents"] / 100) }}
+                </strong>
+            </div>
+            {% endif %}
+        </div>
+
+        <div class="receipt-divider"></div>
+
+        <p class="receipt-thanks">Thank you for your purchase!</p>
+        <p class="receipt-demo-note">
+            TCCP development demo · Not a payment processor
+        </p>
+    </article>
+
+    <div class="receipt-actions no-print">
+        <button
+            class="primary-button"
+            type="button"
+            onclick="window.print()"
+        >
+            Print receipt
+        </button>
+
+        <a class="secondary-button" href="{{ url_for('sale') }}">
+            Start another sale
+        </a>
+
+        <a class="text-link" href="{{ url_for('dashboard') }}">
+            Return to dashboard
+        </a>
+    </div>
+</section>
+{% endblock %}
