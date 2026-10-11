@@ -2,6 +2,7 @@
 import tkinter as tk
 from database.database import get_db_connection
 from ui.reports_view import get_today_sales_summary
+from services.money import format_cents
 
 
 def get_dashboard_data():
@@ -69,7 +70,7 @@ def create_dashboard_view(parent_frame):
         metrics_frame.columnconfigure(column, weight=1, uniform="dashboard-metric")
 
     metrics = (
-        ("Today's Revenue", f"${sales['total_revenue']:.2f}", "#25835f"),
+        ("Today's Revenue", format_cents(sales["total_revenue_cents"]), "#25835f"),
         ("Transactions", str(sales["transaction_count"]), "#347fb6"),
         ("Products", str(data["product_count"]), "#d27a35"),
     )

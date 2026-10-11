@@ -7,7 +7,7 @@ from services.inventory import find_product_by_id, find_products_by_ids
 from services.transaction_service import complete_transaction
 from datetime import datetime 
 
-# Initialize a clean session cart instance
+
 session_cart = Cart()
 
 def add_to_cart():
@@ -111,7 +111,7 @@ def view_cart(products=None):
         print(f"{product['name']} x{qty} - ${subtotal:.2f}")
     
     print("-------------------------")
-    # Phase 1 Complete: Change label from Total to Subtotal to prevent tax confusion
+    
     print(f"Subtotal: ${total:.2f}")
     return total
 
@@ -186,7 +186,7 @@ def checkout():
         print("Checkout failed because the sale could not be recorded. No changes were saved.")
         return False
 
-    # Phase 2 & 3 Complete: Professional Balanced Receipt Engine Layout
+    
     print("\n===================================")
     print("          TCCP RECEIPT")
     print("===================================")
@@ -198,7 +198,7 @@ def checkout():
     for product_id, qty in session_cart.get_items().items():
         product = products[product_id]
         item_cost = product["price"] * qty
-        # Dynamic alignment to right-justify item rows precisely up to 35 characters
+        
         print(f"{product['name']} x{qty}".ljust(24) + f"${item_cost:.2f}".rjust(11))
         
     print("-----------------------------------")
@@ -269,14 +269,14 @@ def start_sale():
             else:
                 success = checkout()
                 if success:
-                    break  # Safe transaction complete: exit sale menu loop
+                    break  
         elif choice == "6":
             if session_cart.is_empty():
                 print("\nNo active sale to cancel.")
             else:
                 was_canceled = cancel_sale()
                 if was_canceled:
-                    break  # Sale explicitly canceled: exit sale menu loop
+                    break  
         elif choice == "7":
             if session_cart.is_empty():
                 print("\nExiting sale.")

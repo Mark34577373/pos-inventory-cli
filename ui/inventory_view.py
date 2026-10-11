@@ -1,53 +1,79 @@
-# ui/inventory_view.py
+
 import sqlite3
 import tkinter as tk
 from tkinter import messagebox
 
-from database.database import get_db_connection
 from services.inventory import (
     create_product,
+    list_active_products,
     remove_product_by_id,
+    remove_product_by_name,
+    search_active_products,
     set_product_quantity,
+    update_product_details,
 )
 from ui.dialogs import create_modal_window
 
 
+BG = "#f8f9fa"
+WHITE = "#ffffff"
+TEXT = "#2c3e50"
+MUTED = "#7f8c8d"
+BORDER = "#e0e0e0"
+GREEN = "#15803d"
+AMBER = "#d97706"
+RED = "#dc2626"
+LOW_STOCK_THRESHOLD = 5
+
+
 def get_inventory_products():
-    """Load the current product catalog directly from the SQLite database."""
-    conn = get_db_connection()
-    try:
-        rows = conn.execute(
-            "SELECT id, name, price, quantity FROM products "
-            "WHERE is_active = 1 ORDER BY id"
-        ).fetchall()
-        return [dict(row) for row in rows]
-    finally:
-        conn.close()
+    """Load active products from SQLite."""
+    return list_active_products()
 
 
 def get_stock_display(quantity):
     """Return the stock label, color, and font for a quantity."""
     if quantity <= 0:
-        return "OUT OF STOCK", "#e74c3c", ("Arial", 10, "bold")
-    return f"Stock: {quantity}", "#2c3e50", ("Arial", 11)
+        return "OUT OF STOCK", RED, ("Arial", 10, "bold")
+
+    if quantity <= LOW_STOCK_THRESHOLD:
+        return (
+            f"LOW STOCK · {quantity} left",
+            AMBER,
+            ("Arial", 10, "bold"),
+        )
+
+    return (
+        f"IN STOCK · {quantity} available",
+        GREEN,
+        ("Arial", 10, "bold"),
+    )
 
 
 def _clear_inventory_view(parent_frame):
-    """Remove the previous inventory widgets before rendering a fresh view."""
+    """Remove the previous inventory widgets before rendering."""
     for widget in parent_frame.winfo_children():
         widget.destroy()
 
 
 def create_inventory_view(parent_frame):
-    """Render live SQLite inventory as responsive product cards."""
+    """Render inventory cards, stock indicators, and inventory summaries."""
     _clear_inventory_view(parent_frame)
 
-    heading = tk.Frame(parent_frame, bg="#f8f9fa")
+    heading = tk.Frame(parent_frame, bg=BG)
     heading.pack(fill=tk.X, pady=(0, 20))
-    title = tk.Label(heading, text="Inventory Management", font=("Arial", 22, "bold"), bg="#f8f9fa", fg="#333333")
-    title.pack(side=tk.LEFT, anchor=tk.W)
-    actions = tk.Frame(heading, bg="#f8f9fa")
+
+    tk.Label(
+        heading,
+        text="Inventory Management",
+        font=("Arial", 22, "bold"),
+        bg=BG,
+        fg="#333333",
+    ).pack(side=tk.LEFT, anchor=tk.W)
+
+    actions = tk.Frame(heading, bg=BG)
     actions.pack(side=tk.RIGHT)
+
     tk.Button(
         actions,
         text="Remove Product",
@@ -61,9 +87,10 @@ def create_inventory_view(parent_frame):
         pady=8,
         cursor="hand2",
     ).pack(side=tk.LEFT, padx=(0, 8))
+
     tk.Button(
         actions,
-        text="Add Product",
+        text="+ Add Product",
         command=lambda: open_add_product_dialog(parent_frame),
         bg="#a8e6cf",
         fg="#000000",
@@ -75,107 +102,415 @@ def create_inventory_view(parent_frame):
         cursor="hand2",
     ).pack(side=tk.LEFT)
 
-    grid_frame = tk.Frame(parent_frame, bg="#f8f9fa")
-    grid_frame.pack(fill=tk.BOTH, expand=True)
+    # Inventory summary cards
+    summary_frame = tk.Frame(parent_frame, bg=BG)
+    summary_frame.pack(fill=tk.X, pady=(0, 16))
 
-    products = get_inventory_products()
+    summary_labels = {}
 
-    if not products:
-        no_items = tk.Label(grid_frame, text="No products found in database.", font=("Arial", 12), bg="#f8f9fa", fg="#7f8c8d")
-        no_items.pack(anchor=tk.W)
-        return
+    summary_items = (
+        ("total", "Total Products", TEXT),
+        ("low", "Low Stock", AMBER),
+        ("out", "Out of Stock", RED),
+    )
 
-    available_width = max(parent_frame.winfo_width() - 40, 185)
-    column_count = max(1, min(4, available_width // 205))
-    for column in range(column_count):
-        grid_frame.columnconfigure(column, weight=1, uniform="inventory-card")
+    for key, title, color in summary_items:
+        card = tk.Frame(
+            summary_frame,
+            bg=WHITE,
+            highlightbackground=BORDER,
+            highlightthickness=1,
+            padx=14,
+            pady=10,
+        )
+        card.pack(
+            side=tk.LEFT,
+            fill=tk.X,
+            expand=True,
+            padx=(0, 10),
+        )
 
-    for index, product in enumerate(products):
-        row, col = divmod(index, column_count)
-        stock_text, stock_color, stock_font = get_stock_display(product["quantity"])
-
-        # White base background card shape
-        card = tk.Frame(grid_frame, bg="white", highlightbackground="#e0e0e0", highlightthickness=1, padx=15, pady=15, width=185, height=155)
-        card.grid(row=row, column=col, padx=10, pady=10, sticky=tk.NSEW)
-        card.grid_propagate(False)
-
-        # Product card details
         tk.Label(
             card,
-            text=f"ID: {product['id']}",
-            font=("Arial", 9),
-            bg="white",
-            fg="#7f8c8d",
-        ).pack(anchor=tk.W, pady=(0, 2))
-        name_lbl = tk.Label(card, text=product["name"], font=("Arial", 12, "bold"), bg="white", fg="#2c3e50")
-        name_lbl.pack(anchor=tk.W, pady=(0, 2))
+            text=title,
+            font=("Arial", 10),
+            bg=WHITE,
+            fg=MUTED,
+        ).pack(anchor=tk.W)
 
-        price_lbl = tk.Label(card, text=f"${product['price']:.2f}", font=("Arial", 11), bg="white", fg="#7f8c8d")
-        price_lbl.pack(anchor=tk.W, pady=(0, 10))
-
-        status_lbl = tk.Label(card, text=stock_text, font=stock_font, bg="white", fg=stock_color)
-        status_lbl.pack(anchor=tk.W, pady=(0, 10))
-
-        add_btn = tk.Label(
-            card, text="Update Stock", font=("Arial", 10, "bold"),
-            bg="#34495e", fg="white", padx=10, pady=4, cursor="hand2"
+        value_label = tk.Label(
+            card,
+            text="0",
+            font=("Arial", 20, "bold"),
+            bg=WHITE,
+            fg=color,
         )
-        add_btn.pack(fill=tk.X, side=tk.BOTTOM)
+        value_label.pack(anchor=tk.W)
 
-        # Hover effect bindings
-        add_btn.bind("<Enter>", lambda e, b=add_btn: b.config(bg="#1abc9c"))
-        add_btn.bind("<Leave>", lambda e, b=add_btn: b.config(bg="#34495e"))
-        add_btn.bind(
-            "<Button-1>",
-            lambda event, selected_product=dict(product): open_stock_dialog(
-                parent_frame, selected_product
-            ),
+        summary_labels[key] = value_label
+
+    # Search controls
+    search_frame = tk.Frame(parent_frame, bg=BG)
+    search_frame.pack(fill=tk.X, pady=(0, 15))
+
+    search_entry = tk.Entry(
+        search_frame,
+        font=("Arial", 11),
+        relief=tk.SOLID,
+        bd=1,
+    )
+    search_entry.pack(
+        side=tk.LEFT,
+        fill=tk.X,
+        expand=True,
+        ipady=7,
+    )
+
+    placeholder = "Search by product name or ID..."
+    search_entry.insert(0, placeholder)
+
+    grid_frame = tk.Frame(parent_frame, bg=BG)
+    grid_frame.pack(fill=tk.BOTH, expand=True)
+
+    def update_summary():
+        """Update stock totals using all active products."""
+        all_products = get_inventory_products()
+
+        summary_labels["total"].config(
+            text=str(len(all_products))
         )
+
+        summary_labels["low"].config(
+            text=str(
+                sum(
+                    1
+                    for product in all_products
+                    if 0 < product["quantity"] <= LOW_STOCK_THRESHOLD
+                )
+            )
+        )
+
+        summary_labels["out"].config(
+            text=str(
+                sum(
+                    1
+                    for product in all_products
+                    if product["quantity"] <= 0
+                )
+            )
+        )
+
+    def render_products(products):
+        """Render supplied products as inventory cards."""
+        for widget in grid_frame.winfo_children():
+            widget.destroy()
+
+        update_summary()
+
+        if not products:
+            tk.Label(
+                grid_frame,
+                text="No products match your search.",
+                font=("Arial", 12),
+                bg=BG,
+                fg=MUTED,
+            ).pack(anchor=tk.W, pady=10)
+            return
+
+        available_width = max(
+            parent_frame.winfo_width() - 40,
+            185,
+        )
+
+        column_count = max(
+            1,
+            min(4, available_width // 225),
+        )
+
+        for column in range(column_count):
+            grid_frame.columnconfigure(
+                column,
+                weight=1,
+                uniform="inventory-card",
+            )
+
+        for index, product in enumerate(products):
+            row, col = divmod(index, column_count)
+
+            stock_text, stock_color, stock_font = get_stock_display(
+                product["quantity"]
+            )
+
+            card = tk.Frame(
+                grid_frame,
+                bg=WHITE,
+                highlightbackground=BORDER,
+                highlightthickness=1,
+                padx=15,
+                pady=15,
+                width=205,
+                height=190,
+            )
+            card.grid(
+                row=row,
+                column=col,
+                padx=8,
+                pady=8,
+                sticky=tk.NSEW,
+            )
+            card.grid_propagate(False)
+
+            tk.Label(
+                card,
+                text=f"PRODUCT ID: {product['id']}",
+                font=("Arial", 8),
+                bg=WHITE,
+                fg=MUTED,
+            ).pack(anchor=tk.W, pady=(0, 5))
+
+            tk.Label(
+                card,
+                text=product["name"],
+                font=("Arial", 12, "bold"),
+                bg=WHITE,
+                fg=TEXT,
+                wraplength=170,
+                justify=tk.LEFT,
+            ).pack(anchor=tk.W, pady=(0, 5))
+
+            tk.Label(
+                card,
+                text=f"${product['price']:.2f}",
+                font=("Arial", 12),
+                bg=WHITE,
+                fg=TEXT,
+            ).pack(anchor=tk.W, pady=(0, 8))
+
+            # Stock status indicator
+            tk.Label(
+                card,
+                text=stock_text,
+                font=stock_font,
+                bg=WHITE,
+                fg=stock_color,
+            ).pack(anchor=tk.W, pady=(0, 8))
+
+            button_frame = tk.Frame(card, bg=WHITE)
+            button_frame.pack(
+                fill=tk.X,
+                side=tk.BOTTOM,
+            )
+
+            update_btn = tk.Label(
+                button_frame,
+                text="Update Stock",
+                font=("Arial", 9, "bold"),
+                bg="#34495e",
+                fg=WHITE,
+                padx=5,
+                pady=5,
+                cursor="hand2",
+            )
+            update_btn.pack(
+                side=tk.LEFT,
+                fill=tk.X,
+                expand=True,
+                padx=(0, 4),
+            )
+
+            update_btn.bind(
+                "<Enter>",
+                lambda event, button=update_btn: button.config(
+                    bg="#1abc9c"
+                ),
+            )
+            update_btn.bind(
+                "<Leave>",
+                lambda event, button=update_btn: button.config(
+                    bg="#34495e"
+                ),
+            )
+            update_btn.bind(
+                "<Button-1>",
+                lambda event, selected=dict(product): open_stock_dialog(
+                    parent_frame, selected
+                ),
+            )
+
+            edit_btn = tk.Label(
+                button_frame,
+                text="Edit",
+                font=("Arial", 9, "bold"),
+                bg="#8e44ad",
+                fg=WHITE,
+                padx=5,
+                pady=5,
+                cursor="hand2",
+            )
+            edit_btn.pack(
+                side=tk.LEFT,
+                fill=tk.X,
+                expand=True,
+                padx=(4, 0),
+            )
+
+            edit_btn.bind(
+                "<Enter>",
+                lambda event, button=edit_btn: button.config(
+                    bg="#9b59b6"
+                ),
+            )
+            edit_btn.bind(
+                "<Leave>",
+                lambda event, button=edit_btn: button.config(
+                    bg="#8e44ad"
+                ),
+            )
+            edit_btn.bind(
+                "<Button-1>",
+                lambda event, selected=dict(product): open_edit_product_dialog(
+                    parent_frame, selected
+                ),
+            )
+
+    def perform_search():
+        """Search active products by ID or partial name."""
+        search_term = search_entry.get().strip()
+
+        if search_term == placeholder:
+            search_term = ""
+
+        products = search_active_products(search_term)
+        render_products(products)
+
+    def clear_search():
+        """Clear search and show all active products."""
+        search_entry.delete(0, tk.END)
+        search_entry.insert(0, placeholder)
+        render_products(get_inventory_products())
+        search_entry.focus_set()
+
+    tk.Button(
+        search_frame,
+        text="Search",
+        command=perform_search,
+        bg="#34495e",
+        fg=WHITE,
+        activebackground="#1abc9c",
+        activeforeground=WHITE,
+        relief=tk.FLAT,
+        padx=16,
+        pady=7,
+        cursor="hand2",
+    ).pack(side=tk.LEFT, padx=(8, 0))
+
+    tk.Button(
+        search_frame,
+        text="Clear",
+        command=clear_search,
+        bg="#e9ece8",
+        fg=TEXT,
+        activebackground="#dde2de",
+        activeforeground=TEXT,
+        relief=tk.FLAT,
+        padx=16,
+        pady=7,
+        cursor="hand2",
+    ).pack(side=tk.LEFT, padx=(8, 0))
+
+    search_entry.bind(
+        "<Return>",
+        lambda event: perform_search(),
+    )
+
+    search_entry.bind(
+        "<FocusIn>",
+        lambda event: (
+            search_entry.delete(0, tk.END)
+            if search_entry.get() == placeholder
+            else None
+        ),
+    )
+
+    search_entry.bind(
+        "<Escape>",
+        lambda event: clear_search(),
+    )
+
+    render_products(get_inventory_products())
 
 
 def open_stock_dialog(parent_frame, product):
-    """Open a dialog to set the selected product's stock quantity."""
-    dialog_width = 360
-    dialog_height = 250
+    """Open a dialog to update a product's stock quantity."""
     dialog = create_modal_window(
-        parent_frame, "Update Stock", dialog_width, dialog_height
+        parent_frame,
+        "Update Stock",
+        360,
+        250,
     )
 
-    form = tk.Frame(dialog, bg="white", padx=24, pady=20)
-    form.pack(fill=tk.BOTH, expand=True, padx=14, pady=14)
+    form = tk.Frame(
+        dialog,
+        bg=WHITE,
+        padx=24,
+        pady=20,
+    )
+    form.pack(
+        fill=tk.BOTH,
+        expand=True,
+        padx=14,
+        pady=14,
+    )
+
     tk.Label(
         form,
         text=f"Update Stock: {product['name']}",
         font=("Arial", 14, "bold"),
-        bg="white",
-        fg="#2c3e50",
+        bg=WHITE,
+        fg=TEXT,
+        wraplength=280,
     ).pack(anchor=tk.W, pady=(0, 8))
+
     tk.Label(
         form,
         text=f"Current stock: {product['quantity']}",
         font=("Arial", 10),
-        bg="white",
-        fg="#7f8c8d",
+        bg=WHITE,
+        fg=MUTED,
     ).pack(anchor=tk.W, pady=(0, 12))
+
     tk.Label(
         form,
         text="New stock quantity",
         font=("Arial", 10, "bold"),
-        bg="white",
-        fg="#34495e",
+        bg=WHITE,
+        fg=TEXT,
     ).pack(anchor=tk.W, pady=(0, 5))
 
-    quantity_entry = tk.Entry(form, font=("Arial", 11), relief=tk.SOLID, bd=1)
-    quantity_entry.pack(fill=tk.X, ipady=5, pady=(0, 14))
+    quantity_entry = tk.Entry(
+        form,
+        font=("Arial", 11),
+        relief=tk.SOLID,
+        bd=1,
+    )
+    quantity_entry.pack(
+        fill=tk.X,
+        ipady=5,
+        pady=(0, 14),
+    )
     quantity_entry.insert(0, str(product["quantity"]))
 
-    buttons = tk.Frame(form, bg="white")
+    buttons = tk.Frame(form, bg=WHITE)
     buttons.pack(fill=tk.X)
+
     tk.Button(
         buttons,
         text="Save Changes",
         command=lambda: _submit_stock_quantity(
-            parent_frame, dialog, product["id"], quantity_entry
+            parent_frame,
+            dialog,
+            product["id"],
+            quantity_entry,
         ),
         bg="#1abc9c",
         fg="#000000",
@@ -185,33 +520,53 @@ def open_stock_dialog(parent_frame, product):
         font=("Arial", 10, "bold"),
         pady=9,
         cursor="hand2",
-    ).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 6))
+    ).pack(
+        side=tk.LEFT,
+        fill=tk.X,
+        expand=True,
+        padx=(0, 6),
+    )
+
     tk.Button(
         buttons,
         text="Cancel",
         command=dialog.destroy,
         bg="#e9ece8",
-        fg="#34495e",
+        fg=TEXT,
         relief=tk.FLAT,
         font=("Arial", 10),
         pady=9,
         cursor="hand2",
-    ).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(6, 0))
+    ).pack(
+        side=tk.LEFT,
+        fill=tk.X,
+        expand=True,
+        padx=(6, 0),
+    )
 
     dialog.bind(
         "<Return>",
         lambda event: _submit_stock_quantity(
-            parent_frame, dialog, product["id"], quantity_entry
+            parent_frame,
+            dialog,
+            product["id"],
+            quantity_entry,
         ),
     )
     dialog.bind("<Escape>", lambda event: dialog.destroy())
+
     dialog.grab_set()
     quantity_entry.focus_set()
     quantity_entry.selection_range(0, tk.END)
 
 
-def _submit_stock_quantity(parent_frame, dialog, product_id, quantity_entry):
-    """Validate and persist a stock quantity, then refresh the inventory cards."""
+def _submit_stock_quantity(
+    parent_frame,
+    dialog,
+    product_id,
+    quantity_entry,
+):
+    """Validate and save stock, then refresh the inventory."""
     try:
         quantity = int(quantity_entry.get())
     except ValueError:
@@ -226,7 +581,11 @@ def _submit_stock_quantity(parent_frame, dialog, product_id, quantity_entry):
     try:
         set_product_quantity(product_id, quantity)
     except ValueError as error:
-        messagebox.showerror("Invalid Stock", str(error), parent=dialog)
+        messagebox.showerror(
+            "Invalid Stock",
+            str(error),
+            parent=dialog,
+        )
         quantity_entry.focus_set()
         return
     except sqlite3.Error as error:
@@ -241,26 +600,234 @@ def _submit_stock_quantity(parent_frame, dialog, product_id, quantity_entry):
     create_inventory_view(parent_frame)
 
 
-def open_add_product_dialog(parent_frame):
-    """Open a modal form for adding a product to the SQLite inventory."""
-    dialog_width = 380
-    dialog_height = 370
+def open_edit_product_dialog(parent_frame, product):
+    """Open a dialog to edit a product's name and price."""
     dialog = create_modal_window(
-        parent_frame, "Add Product", dialog_width, dialog_height
+        parent_frame,
+        "Edit Product",
+        380,
+        330,
     )
 
-    form = tk.Frame(dialog, bg="white", padx=28, pady=24)
-    form.pack(fill=tk.BOTH, expand=True, padx=14, pady=14)
+    form = tk.Frame(
+        dialog,
+        bg=WHITE,
+        padx=28,
+        pady=24,
+    )
+    form.pack(
+        fill=tk.BOTH,
+        expand=True,
+        padx=14,
+        pady=14,
+    )
+
+    tk.Label(
+        form,
+        text="Edit Product",
+        font=("Arial", 16, "bold"),
+        bg=WHITE,
+        fg=TEXT,
+    ).pack(anchor=tk.W, pady=(0, 6))
+
+    tk.Label(
+        form,
+        text=f"Product ID: {product['id']}",
+        font=("Arial", 9),
+        bg=WHITE,
+        fg=MUTED,
+    ).pack(anchor=tk.W, pady=(0, 18))
+
+    tk.Label(
+        form,
+        text="Product Name",
+        font=("Arial", 10, "bold"),
+        bg=WHITE,
+        fg=TEXT,
+    ).pack(anchor=tk.W, pady=(0, 5))
+
+    name_entry = tk.Entry(
+        form,
+        font=("Arial", 11),
+        relief=tk.SOLID,
+        bd=1,
+    )
+    name_entry.pack(fill=tk.X, ipady=6, pady=(0, 14))
+    name_entry.insert(0, product["name"])
+
+    tk.Label(
+        form,
+        text="Price",
+        font=("Arial", 10, "bold"),
+        bg=WHITE,
+        fg=TEXT,
+    ).pack(anchor=tk.W, pady=(0, 5))
+
+    price_entry = tk.Entry(
+        form,
+        font=("Arial", 11),
+        relief=tk.SOLID,
+        bd=1,
+    )
+    price_entry.pack(fill=tk.X, ipady=6, pady=(0, 18))
+    price_entry.insert(0, f"{product['price']:.2f}")
+
+    buttons = tk.Frame(form, bg=WHITE)
+    buttons.pack(fill=tk.X)
+
+    tk.Button(
+        buttons,
+        text="Save Changes",
+        command=lambda: _submit_product_edit(
+            parent_frame,
+            dialog,
+            product["id"],
+            name_entry,
+            price_entry,
+        ),
+        bg="#8e44ad",
+        fg=WHITE,
+        activebackground="#9b59b6",
+        activeforeground=WHITE,
+        relief=tk.FLAT,
+        font=("Arial", 10, "bold"),
+        pady=10,
+        cursor="hand2",
+    ).pack(
+        side=tk.LEFT,
+        fill=tk.X,
+        expand=True,
+        padx=(0, 6),
+    )
+
+    tk.Button(
+        buttons,
+        text="Cancel",
+        command=dialog.destroy,
+        bg="#e9ece8",
+        fg=TEXT,
+        relief=tk.FLAT,
+        font=("Arial", 10),
+        pady=10,
+        cursor="hand2",
+    ).pack(
+        side=tk.LEFT,
+        fill=tk.X,
+        expand=True,
+        padx=(6, 0),
+    )
+
+    dialog.bind(
+        "<Return>",
+        lambda event: _submit_product_edit(
+            parent_frame,
+            dialog,
+            product["id"],
+            name_entry,
+            price_entry,
+        ),
+    )
+    dialog.bind("<Escape>", lambda event: dialog.destroy())
+
+    dialog.grab_set()
+    name_entry.focus_set()
+    name_entry.selection_range(0, tk.END)
+
+
+def _submit_product_edit(
+    parent_frame,
+    dialog,
+    product_id,
+    name_entry,
+    price_entry,
+):
+    """Validate and save the edited product."""
+    name = name_entry.get().strip()
+    price_text = price_entry.get().strip()
+
+    if not name:
+        messagebox.showerror(
+            "Missing Name",
+            "Product name cannot be empty.",
+            parent=dialog,
+        )
+        name_entry.focus_set()
+        return
+
+    if not price_text:
+        messagebox.showerror(
+            "Missing Price",
+            "Product price cannot be empty.",
+            parent=dialog,
+        )
+        price_entry.focus_set()
+        return
+
+    try:
+        price = float(price_text)
+    except ValueError:
+        messagebox.showerror(
+            "Invalid Price",
+            "Enter a valid product price.",
+            parent=dialog,
+        )
+        price_entry.focus_set()
+        return
+
+    try:
+        update_product_details(product_id, name, price)
+    except ValueError as error:
+        messagebox.showerror(
+            "Cannot Update Product",
+            str(error),
+            parent=dialog,
+        )
+        price_entry.focus_set()
+        return
+    except sqlite3.Error as error:
+        messagebox.showerror(
+            "Update Failed",
+            f"The product could not be updated: {error}",
+            parent=dialog,
+        )
+        return
+
+    dialog.destroy()
+    create_inventory_view(parent_frame)
+
+
+def open_add_product_dialog(parent_frame):
+    """Open a modal form for adding a product to inventory."""
+    dialog = create_modal_window(
+        parent_frame,
+        "Add Product",
+        380,
+        370,
+    )
+
+    form = tk.Frame(
+        dialog,
+        bg=WHITE,
+        padx=28,
+        pady=24,
+    )
+    form.pack(
+        fill=tk.BOTH,
+        expand=True,
+        padx=14,
+        pady=14,
+    )
 
     tk.Label(
         form,
         text="Add Product",
         font=("Arial", 16, "bold"),
-        bg="white",
-        fg="#2c3e50",
+        bg=WHITE,
+        fg=TEXT,
     ).pack(anchor=tk.W, pady=(0, 20))
 
     entries = {}
+
     for label, key in (
         ("Product Name", "name"),
         ("Price", "price"),
@@ -270,15 +837,22 @@ def open_add_product_dialog(parent_frame):
             form,
             text=label,
             font=("Arial", 10, "bold"),
-            bg="white",
-            fg="#34495e",
+            bg=WHITE,
+            fg=TEXT,
         ).pack(anchor=tk.W, pady=(0, 5))
-        entry = tk.Entry(form, font=("Arial", 11), relief=tk.SOLID, bd=1)
+
+        entry = tk.Entry(
+            form,
+            font=("Arial", 11),
+            relief=tk.SOLID,
+            bd=1,
+        )
         entry.pack(fill=tk.X, ipady=6, pady=(0, 14))
         entries[key] = entry
 
-    buttons = tk.Frame(form, bg="white")
+    buttons = tk.Frame(form, bg=WHITE)
     buttons.pack(fill=tk.X, pady=(4, 0))
+
     tk.Button(
         buttons,
         text="Add Product",
@@ -298,12 +872,13 @@ def open_add_product_dialog(parent_frame):
         pady=12,
         cursor="hand2",
     ).pack(fill=tk.X, pady=(0, 8))
+
     tk.Button(
         buttons,
         text="Cancel",
         command=dialog.destroy,
         bg="#e9ece8",
-        fg="#34495e",
+        fg=TEXT,
         relief=tk.FLAT,
         font=("Arial", 10),
         pady=10,
@@ -321,48 +896,68 @@ def open_add_product_dialog(parent_frame):
         ),
     )
     dialog.bind("<Escape>", lambda event: dialog.destroy())
+
     dialog.grab_set()
     entries["name"].focus_set()
 
 
 def open_remove_product_dialog(parent_frame):
-    """Open a dialog requiring both name and ID to remove a product."""
-    dialog_width = 420
-    dialog_height = 410
+    """Open a dialog to remove a product by ID or name."""
     dialog = create_modal_window(
-        parent_frame, "Remove Product", dialog_width, dialog_height
+        parent_frame,
+        "Remove Product",
+        420,
+        300,
     )
 
-    form = tk.Frame(dialog, bg="white", padx=26, pady=20)
-    form.pack(fill=tk.BOTH, expand=True, padx=12, pady=12)
+    form = tk.Frame(
+        dialog,
+        bg=WHITE,
+        padx=26,
+        pady=20,
+    )
+    form.pack(
+        fill=tk.BOTH,
+        expand=True,
+        padx=12,
+        pady=12,
+    )
+
     tk.Label(
         form,
         text="Remove Product",
         font=("Arial", 16, "bold"),
-        bg="white",
-        fg="#2c3e50",
-    ).pack(anchor=tk.W, pady=(0, 12))
-    tk.Label(
-        form,
-        text="Product Name",
-        font=("Arial", 10, "bold"),
-        bg="white",
-        fg="#34495e",
-    ).pack(anchor=tk.W, pady=(0, 5))
-    name_entry = tk.Entry(form, font=("Arial", 11), relief=tk.SOLID, bd=1)
-    name_entry.pack(fill=tk.X, ipady=6, pady=(0, 10))
-    tk.Label(
-        form,
-        text="Product ID",
-        font=("Arial", 10, "bold"),
-        bg="white",
-        fg="#34495e",
-    ).pack(anchor=tk.W, pady=(0, 5))
-    product_id_entry = tk.Entry(form, font=("Arial", 11), relief=tk.SOLID, bd=1)
-    product_id_entry.pack(fill=tk.X, ipady=6, pady=(0, 14))
+        bg=WHITE,
+        fg=TEXT,
+    ).pack(anchor=tk.W, pady=(0, 8))
 
-    buttons = tk.Frame(form, bg="white")
+    tk.Label(
+        form,
+        text="Enter product ID or name",
+        font=("Arial", 10, "bold"),
+        bg=WHITE,
+        fg=TEXT,
+    ).pack(anchor=tk.W, pady=(0, 5))
+
+    product_entry = tk.Entry(
+        form,
+        font=("Arial", 11),
+        relief=tk.SOLID,
+        bd=1,
+    )
+    product_entry.pack(fill=tk.X, ipady=6, pady=(0, 8))
+
+    tk.Label(
+        form,
+        text="Example: 3 or Mouse",
+        font=("Arial", 9),
+        bg=WHITE,
+        fg=MUTED,
+    ).pack(anchor=tk.W, pady=(0, 14))
+
+    buttons = tk.Frame(form, bg=WHITE)
     buttons.pack(fill=tk.X)
+
     remove_button = tk.Label(
         buttons,
         text="Remove Product",
@@ -374,59 +969,92 @@ def open_remove_product_dialog(parent_frame):
         cursor="hand2",
     )
     remove_button.pack(fill=tk.X, pady=(0, 8))
+
     remove_button.bind(
         "<Button-1>",
         lambda event: _submit_remove_product(
-            parent_frame, dialog, name_entry, product_id_entry
+            parent_frame,
+            dialog,
+            product_entry,
         ),
     )
-    remove_button.bind("<Enter>", lambda event: remove_button.config(bg="#ec8882"))
-    remove_button.bind("<Leave>", lambda event: remove_button.config(bg="#f3a7a3"))
+    remove_button.bind(
+        "<Enter>",
+        lambda event: remove_button.config(bg="#ec8882"),
+    )
+    remove_button.bind(
+        "<Leave>",
+        lambda event: remove_button.config(bg="#f3a7a3"),
+    )
 
     cancel_button = tk.Label(
         buttons,
         text="Cancel",
         bg="#e9ece8",
-        fg="#34495e",
+        fg=TEXT,
         font=("Arial", 12),
         padx=14,
         pady=15,
         cursor="hand2",
     )
     cancel_button.pack(fill=tk.X)
-    cancel_button.bind("<Button-1>", lambda event: dialog.destroy())
-    cancel_button.bind("<Enter>", lambda event: cancel_button.config(bg="#dde2de"))
-    cancel_button.bind("<Leave>", lambda event: cancel_button.config(bg="#e9ece8"))
+    cancel_button.bind(
+        "<Button-1>",
+        lambda event: dialog.destroy(),
+    )
+    cancel_button.bind(
+        "<Enter>",
+        lambda event: cancel_button.config(bg="#dde2de"),
+    )
+    cancel_button.bind(
+        "<Leave>",
+        lambda event: cancel_button.config(bg="#e9ece8"),
+    )
 
     dialog.bind(
         "<Return>",
         lambda event: _submit_remove_product(
-            parent_frame, dialog, name_entry, product_id_entry
+            parent_frame,
+            dialog,
+            product_entry,
         ),
     )
     dialog.bind("<Escape>", lambda event: dialog.destroy())
+
     dialog.grab_set()
-    name_entry.focus_set()
+    product_entry.focus_set()
 
 
-def _submit_remove_product(parent_frame, dialog, name_entry, product_id_entry):
-    """Validate the product name and ID, then refresh active inventory."""
-    try:
-        product_id = int(product_id_entry.get())
-    except ValueError:
+def _submit_remove_product(
+    parent_frame,
+    dialog,
+    product_entry,
+):
+    """Remove a product by ID or exact name."""
+    search_value = product_entry.get().strip()
+
+    if not search_value:
         messagebox.showerror(
-            "Invalid Product ID",
-            "Enter the whole-number ID shown on the product card.",
+            "Missing Product",
+            "Enter a product ID or product name.",
             parent=dialog,
         )
-        product_id_entry.focus_set()
+        product_entry.focus_set()
         return
 
     try:
-        remove_product_by_id(product_id, name_entry.get())
+        if search_value.isdigit():
+            remove_product_by_id(int(search_value))
+        else:
+            remove_product_by_name(search_value)
+
     except ValueError as error:
-        messagebox.showerror("Cannot Remove Product", str(error), parent=dialog)
-        name_entry.focus_set()
+        messagebox.showerror(
+            "Cannot Remove Product",
+            str(error),
+            parent=dialog,
+        )
+        product_entry.focus_set()
         return
     except sqlite3.Error as error:
         messagebox.showerror(
@@ -440,27 +1068,46 @@ def _submit_remove_product(parent_frame, dialog, name_entry, product_id_entry):
     create_inventory_view(parent_frame)
 
 
-def _submit_new_product(parent_frame, dialog, name_entry, price_entry, quantity_entry):
-    """Validate form values, save them through the inventory service, and refresh."""
-    name = name_entry.get()
+def _submit_new_product(
+    parent_frame,
+    dialog,
+    name_entry,
+    price_entry,
+    quantity_entry,
+):
+    """Validate and create a product in SQLite."""
+    name = name_entry.get().strip()
+
     try:
         price = float(price_entry.get())
     except ValueError:
-        messagebox.showerror("Invalid Price", "Enter a valid product price.", parent=dialog)
+        messagebox.showerror(
+            "Invalid Price",
+            "Enter a valid product price.",
+            parent=dialog,
+        )
         price_entry.focus_set()
         return
 
     try:
         quantity = int(quantity_entry.get())
     except ValueError:
-        messagebox.showerror("Invalid Quantity", "Enter a whole-number quantity.", parent=dialog)
+        messagebox.showerror(
+            "Invalid Quantity",
+            "Enter a whole-number quantity.",
+            parent=dialog,
+        )
         quantity_entry.focus_set()
         return
 
     try:
         product_id = create_product(name, price, quantity)
     except ValueError as error:
-        messagebox.showerror("Invalid Product", str(error), parent=dialog)
+        messagebox.showerror(
+            "Invalid Product",
+            str(error),
+            parent=dialog,
+        )
         return
     except sqlite3.Error as error:
         messagebox.showerror(
@@ -473,4 +1120,3 @@ def _submit_new_product(parent_frame, dialog, name_entry, price_entry, quantity_
     dialog.destroy()
     create_inventory_view(parent_frame)
     return product_id
-

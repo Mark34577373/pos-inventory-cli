@@ -11,7 +11,21 @@ def get_db_connection():
     """Establishes a connection to the SQLite database with row factory enabled."""
     conn = sqlite3.connect(DB_FILE)
     conn.row_factory = sqlite3.Row  # Allows accessing columns by name like dictionary keys
+    conn.execute("PRAGMA foreign_keys = ON")
     return conn
+
+
+def _ensure_column(cursor, table, column_name, declaration):
+    cursor.execute(f"PRAGMA table_info({table})")
+    existing_columns = {column["name"] for column in cursor.fetchall()}
+    if column_name in existing_columns:
+        return False
+
+    cursor.execute(
+        f"ALTER TABLE {table} ADD COLUMN {column_name} {declaration}"
+    )
+    return True
+
 
 def initialize_database():
     """Creates the necessary tables if they do not exist and seeds initial data."""
@@ -24,6 +38,7 @@ def initialize_database():
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL,
         price REAL NOT NULL,
+        price_cents INTEGER NOT NULL DEFAULT 0,
         quantity INTEGER NOT NULL,
         is_active INTEGER NOT NULL DEFAULT 1
     )
@@ -35,6 +50,7 @@ def initialize_database():
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         timestamp TEXT NOT NULL,
         total REAL NOT NULL,
+        total_cents INTEGER NOT NULL DEFAULT 0,
         payment_method TEXT NOT NULL
     )
     """)
@@ -47,39 +63,50 @@ def initialize_database():
         product_id INTEGER NOT NULL,
         quantity INTEGER NOT NULL,
         price REAL NOT NULL,
+        price_cents INTEGER NOT NULL DEFAULT 0,
+        product_name TEXT NOT NULL DEFAULT '',
         FOREIGN KEY (transaction_id) REFERENCES transactions (id),
         FOREIGN KEY (product_id) REFERENCES products (id)
     )
     """)
 
-    cursor.execute("PRAGMA table_info(products)")
-    product_columns = [column["name"] for column in cursor.fetchall()]
-    if "is_active" not in product_columns:
+    if _ensure_column(cursor, "products", "is_active", "INTEGER NOT NULL DEFAULT 1"):
+        pass
+    if _ensure_column(cursor, "products", "price_cents", "INTEGER NOT NULL DEFAULT 0"):
         cursor.execute(
-            "ALTER TABLE products "
-            "ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1"
+            "UPDATE products SET price_cents = CAST(ROUND(price * 100) AS INTEGER)"
         )
 
- # Add payment_method to existing databases if it doesn't exist
-    cursor.execute("PRAGMA table_info(transactions)")
-    transaction_columns = [column["name"] for column in cursor.fetchall()]
-
-    if "payment_method" not in transaction_columns:
+    if _ensure_column(cursor, "transactions", "payment_method", "TEXT NOT NULL DEFAULT 'Unknown'"):
+        pass
+    if _ensure_column(cursor, "transactions", "total_cents", "INTEGER NOT NULL DEFAULT 0"):
         cursor.execute(
-            "ALTER TABLE transactions "
-            "ADD COLUMN payment_method TEXT NOT NULL DEFAULT 'Unknown'"
+            "UPDATE transactions SET total_cents = CAST(ROUND(total * 100) AS INTEGER)"
+        )
+    if _ensure_column(cursor, "transaction_items", "price_cents", "INTEGER NOT NULL DEFAULT 0"):
+        cursor.execute(
+            "UPDATE transaction_items "
+            "SET price_cents = CAST(ROUND(price * 100) AS INTEGER)"
+        )
+    if _ensure_column(cursor, "transaction_items", "product_name", "TEXT NOT NULL DEFAULT ''"):
+        cursor.execute(
+            "UPDATE transaction_items "
+            "SET product_name = COALESCE(("
+            "SELECT name FROM products WHERE products.id = transaction_items.product_id"
+            "), '')"
         )
 
-    # Seed initial data if the products table is completely empty
-
-    # Seed initial data if the products table is completely empty
     cursor.execute("SELECT COUNT(*) FROM products")
     if cursor.fetchone()[0] == 0:
         initial_products = [
-            ("Mouse", 10.99, 5),
-            ("Keyboard", 29.99, 0)
+            ("Mouse", 10.99, 1099, 5),
+            ("Keyboard", 29.99, 2999, 0)
         ]
-        cursor.executemany("INSERT INTO products (name, price, quantity) VALUES (?, ?, ?)", initial_products)
+        cursor.executemany(
+            "INSERT INTO products (name, price, price_cents, quantity) "
+            "VALUES (?, ?, ?, ?)",
+            initial_products,
+        )
         
     conn.commit()
     conn.close()

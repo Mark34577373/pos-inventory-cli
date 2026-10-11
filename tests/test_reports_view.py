@@ -21,9 +21,10 @@ class ReportsSummaryTests(unittest.TestCase):
         conn = database.get_db_connection()
         try:
             conn.execute(
-                "INSERT INTO transactions (timestamp, total, payment_method) "
-                "VALUES (?, ?, ?)",
-                (timestamp, total, payment_method),
+                "INSERT INTO transactions "
+                "(timestamp, total, total_cents, payment_method) "
+                "VALUES (?, ?, ?, ?)",
+                (timestamp, total, round(total * 100), payment_method),
             )
             conn.commit()
         finally:
@@ -39,19 +40,19 @@ class ReportsSummaryTests(unittest.TestCase):
         summary = get_today_sales_summary(datetime(2026, 9, 30, 12, 0))
 
         self.assertEqual(summary["transaction_count"], 3)
-        self.assertEqual(summary["total_revenue"], 175.0)
-        self.assertAlmostEqual(summary["average_sale"], 175.0 / 3)
-        self.assertEqual(summary["cash_revenue"], 100.0)
-        self.assertEqual(summary["card_revenue"], 50.0)
+        self.assertEqual(summary["total_revenue_cents"], 17500)
+        self.assertAlmostEqual(summary["average_sale_cents"], 17500 / 3)
+        self.assertEqual(summary["cash_revenue_cents"], 10000)
+        self.assertEqual(summary["card_revenue_cents"], 5000)
 
     def test_empty_day_returns_zero_for_every_metric(self):
         summary = get_today_sales_summary(datetime(2026, 9, 30, 12, 0))
 
         self.assertEqual(summary["transaction_count"], 0)
-        self.assertEqual(summary["total_revenue"], 0.0)
-        self.assertEqual(summary["average_sale"], 0.0)
-        self.assertEqual(summary["cash_revenue"], 0.0)
-        self.assertEqual(summary["card_revenue"], 0.0)
+        self.assertEqual(summary["total_revenue_cents"], 0)
+        self.assertEqual(summary["average_sale_cents"], 0)
+        self.assertEqual(summary["cash_revenue_cents"], 0)
+        self.assertEqual(summary["card_revenue_cents"], 0)
 
 
 if __name__ == "__main__":

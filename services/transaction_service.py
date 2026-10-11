@@ -1,9 +1,12 @@
 # services/transaction_service.py
 from datetime import datetime
+
+from config import TAX_RATE
 from database.database import get_db_connection
+from services.money import calculate_tax_cents, from_cents, to_cents
 
 def complete_transaction(cart_items, total_amount, payment_method):
-    """Deducts inventory and records a sale atomically in SQLite with payment details."""
+    """Validate and persist a complete sale atomically using integer cents."""
     payment_method = (
         payment_method.strip().title()
         if isinstance(payment_method, str)
@@ -11,37 +14,84 @@ def complete_transaction(cart_items, total_amount, payment_method):
     )
     if payment_method not in ("Cash", "Card"):
         raise ValueError("Payment method must be Cash or Card.")
+    if not cart_items:
+        raise ValueError("Your cart is empty. Add an item before checking out.")
+
+    submitted_total_cents = to_cents(total_amount)
 
     conn = get_db_connection()
     try:
         with conn:
             cursor = conn.cursor()
-
+            subtotal_cents = 0
+            transaction_items = []
             for item in cart_items:
+                product_id = item.get("id")
+                quantity = item.get("qty")
+                if (
+                    isinstance(quantity, bool)
+                    or not isinstance(quantity, int)
+                    or quantity <= 0
+                ):
+                    raise ValueError("Item quantity must be a positive whole number.")
+
+                product = cursor.execute(
+                    "SELECT name, quantity, price_cents FROM products "
+                    "WHERE id = ? AND is_active = 1",
+                    (product_id,),
+                ).fetchone()
+                if product is None:
+                    raise ValueError(f"Product {product_id} is no longer available.")
+                if product["quantity"] < quantity:
+                    raise ValueError(
+                        f"Only {product['quantity']} units of {product['name']} are available."
+                    )
+
                 cursor.execute(
                     "UPDATE products SET quantity = quantity - ? "
                     "WHERE id = ? AND quantity >= ? AND is_active = 1",
-                    (item["qty"], item["id"], item["qty"])
+                    (quantity, product_id, quantity),
                 )
                 if cursor.rowcount != 1:
                     raise ValueError(
-                        f"insufficient stock for product ID {item['id']}"
+                        f"Stock changed while processing {product['name']}. Please retry."
                     )
 
+                price_cents = product["price_cents"]
+                subtotal_cents += price_cents * quantity
+                transaction_items.append(
+                    (product_id, quantity, price_cents, product["name"])
+                )
+
+            tax_cents = calculate_tax_cents(subtotal_cents, TAX_RATE)
+            total_cents = subtotal_cents + tax_cents
+            if submitted_total_cents != total_cents:
+                raise ValueError(
+                    "Prices changed during checkout. Review the cart and try again."
+                )
+
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-           
             cursor.execute(
-                "INSERT INTO transactions (timestamp, total, payment_method) VALUES (?, ?, ?)",
-                (timestamp, total_amount, payment_method)
+                "INSERT INTO transactions "
+                "(timestamp, total, total_cents, payment_method) "
+                "VALUES (?, ?, ?, ?)",
+                (timestamp, float(from_cents(total_cents)), total_cents, payment_method),
             )
             transaction_id = cursor.lastrowid
 
-            for item in cart_items:
+            for product_id, quantity, price_cents, product_name in transaction_items:
                 cursor.execute(
                     "INSERT INTO transaction_items "
-                    "(transaction_id, product_id, quantity, price) "
-                    "VALUES (?, ?, ?, ?)",
-                    (transaction_id, item["id"], item["qty"], item["price"])
+                    "(transaction_id, product_id, quantity, price, price_cents, product_name) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (
+                        transaction_id,
+                        product_id,
+                        quantity,
+                        float(from_cents(price_cents)),
+                        price_cents,
+                        product_name,
+                    ),
                 )
     finally:
         conn.close()

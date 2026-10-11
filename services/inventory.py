@@ -2,16 +2,64 @@ from contextlib import closing
 import math
 
 from database.database import get_db_connection
+from services.money import from_cents, to_cents
+
+
+def _product_from_row(row):
+    product = dict(row)
+    product["price_cents"] = int(product["price_cents"])
+    product["price"] = from_cents(product["price_cents"])
+    return product
+
+
+def list_active_products():
+    """Return active products with exact cent and Decimal price values."""
+    with closing(get_db_connection()) as conn:
+        rows = conn.execute(
+            "SELECT * FROM products WHERE is_active = 1 ORDER BY id"
+        ).fetchall()
+
+    return [_product_from_row(row) for row in rows]
+
+
+def search_active_products(search_term):
+    """Return active products matching an ID or partial product name."""
+    if not isinstance(search_term, str):
+        return []
+
+    search_term = search_term.strip()
+
+    if not search_term:
+        return list_active_products()
+
+    with closing(get_db_connection()) as conn:
+        if search_term.isdigit():
+            rows = conn.execute(
+                "SELECT * FROM products "
+                "WHERE id = ? AND is_active = 1 "
+                "ORDER BY id",
+                (int(search_term),),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM products "
+                "WHERE name LIKE ? COLLATE NOCASE "
+                "AND is_active = 1 "
+                "ORDER BY id",
+                (f"%{search_term}%",),
+            ).fetchall()
+
+    return [_product_from_row(row) for row in rows]
 
 
 def find_product_by_id(product_id):
     with closing(get_db_connection()) as conn:
         row = conn.execute(
             "SELECT * FROM products WHERE id = ? AND is_active = 1",
-            (product_id,)
+            (product_id,),
         ).fetchone()
 
-    return dict(row) if row else None
+    return _product_from_row(row) if row else None
 
 
 def find_products_by_ids(product_ids):
@@ -24,10 +72,13 @@ def find_products_by_ids(product_ids):
         rows = conn.execute(
             f"SELECT * FROM products WHERE id IN ({placeholders}) "
             "AND is_active = 1",
-            product_ids
+            product_ids,
         ).fetchall()
 
-    return {row["id"]: dict(row) for row in rows}
+    return {
+        row["id"]: _product_from_row(row)
+        for row in rows
+    }
 
 
 def get_price(prompt):
@@ -64,42 +115,97 @@ def create_product(name, price, quantity):
         raise ValueError("Product name cannot be empty.")
 
     try:
-        price = float(price)
-    except (TypeError, ValueError) as error:
-        raise ValueError("Price must be a valid number.") from error
-    if not math.isfinite(price) or price < 0:
-        raise ValueError("Price must be a finite non-negative number.")
+        price_cents = to_cents(price)
+    except ValueError as error:
+        raise ValueError(
+            "Price must be a valid finite number."
+        ) from error
+
+    if price_cents <= 0:
+        raise ValueError("Price must be greater than $0.")
 
     if isinstance(quantity, bool) or not isinstance(quantity, int):
         raise ValueError("Quantity must be a whole number.")
+
     if quantity < 0:
         raise ValueError("Quantity cannot be negative.")
 
     with closing(get_db_connection()) as conn:
         with conn:
             cursor = conn.execute(
-                "INSERT INTO products (name, price, quantity) VALUES (?, ?, ?)",
-                (name.strip(), price, quantity),
+                "INSERT INTO products "
+                "(name, price, price_cents, quantity) "
+                "VALUES (?, ?, ?, ?)",
+                (
+                    name.strip(),
+                    price_cents / 100,
+                    price_cents,
+                    quantity,
+                ),
             )
+
             return cursor.lastrowid
+
+
+def update_product_details(product_id, name, price):
+    """Update an active product's name and exact cent-denominated price."""
+    if not isinstance(name, str) or not name.strip():
+        raise ValueError("Product name cannot be empty.")
+
+    try:
+        price_cents = to_cents(price)
+    except ValueError as error:
+        raise ValueError(
+            "Price must be a valid finite number."
+        ) from error
+
+    if price_cents <= 0:
+        raise ValueError("Price must be greater than $0.")
+
+    with closing(get_db_connection()) as conn:
+        with conn:
+            cursor = conn.execute(
+                "UPDATE products "
+                "SET name = ?, price = ?, price_cents = ? "
+                "WHERE id = ? AND is_active = 1",
+                (
+                    name.strip(),
+                    price_cents / 100,
+                    price_cents,
+                    product_id,
+                ),
+            )
+
+            if cursor.rowcount != 1:
+                raise ValueError(
+                    "Product no longer exists in inventory."
+                )
 
 
 def set_product_quantity(product_id, quantity):
     """Set a product's stock quantity and return its ID."""
     if isinstance(quantity, bool) or not isinstance(quantity, int):
         raise ValueError("Quantity must be a whole number.")
+
     if quantity < 0:
         raise ValueError("Quantity cannot be negative.")
 
     with closing(get_db_connection()) as conn:
         with conn:
             cursor = conn.execute(
-                "UPDATE products SET quantity = ? "
+                "UPDATE products "
+                "SET quantity = ? "
                 "WHERE id = ? AND is_active = 1",
-                (quantity, product_id),
+                (
+                    quantity,
+                    product_id,
+                ),
             )
+
             if cursor.rowcount != 1:
-                raise ValueError("Product no longer exists in inventory.")
+                raise ValueError(
+                    "Product no longer exists in inventory."
+                )
 
     return product_id
 
@@ -109,14 +215,36 @@ def deactivate_product(product_id):
     with closing(get_db_connection()) as conn:
         with conn:
             cursor = conn.execute(
-                "UPDATE products SET is_active = 0 "
+                "UPDATE products "
+                "SET is_active = 0 "
                 "WHERE id = ? AND is_active = 1",
                 (product_id,),
             )
+
             if cursor.rowcount != 1:
-                raise ValueError("Product no longer exists in active inventory.")
+                raise ValueError(
+                    "Product no longer exists in active inventory."
+                )
 
     return product_id
+
+
+def remove_product_by_id(product_id):
+    """Deactivate one active product by ID."""
+    if isinstance(product_id, bool) or not isinstance(product_id, int):
+        raise ValueError("Product ID must be a whole number.")
+
+    if product_id <= 0:
+        raise ValueError("Product ID must be greater than zero.")
+
+    product = find_product_by_id(product_id)
+
+    if product is None:
+        raise ValueError(
+            f"No active product with ID {product_id} was found."
+        )
+
+    return deactivate_product(product_id)
 
 
 def remove_product_by_name(name):
@@ -127,13 +255,17 @@ def remove_product_by_name(name):
     with closing(get_db_connection()) as conn:
         matches = conn.execute(
             "SELECT id FROM products "
-            "WHERE is_active = 1 AND name = ? COLLATE NOCASE "
+            "WHERE is_active = 1 "
+            "AND name = ? COLLATE NOCASE "
             "ORDER BY id",
             (name.strip(),),
         ).fetchall()
 
     if not matches:
-        raise ValueError(f'No active product named "{name.strip()}" was found.')
+        raise ValueError(
+            f'No active product named "{name.strip()}" was found.'
+        )
+
     if len(matches) > 1:
         raise ValueError(
             f'More than one active product is named "{name.strip()}". '
@@ -141,24 +273,6 @@ def remove_product_by_name(name):
         )
 
     return deactivate_product(matches[0]["id"])
-
-
-def remove_product_by_id(product_id, name):
-    """Deactivate a product only when its ID and name both match."""
-    if isinstance(product_id, bool) or not isinstance(product_id, int):
-        raise ValueError("Product ID must be a whole number.")
-    if product_id <= 0:
-        raise ValueError("Product ID must be greater than zero.")
-    if not isinstance(name, str) or not name.strip():
-        raise ValueError("Product name cannot be empty.")
-
-    product = find_product_by_id(product_id)
-    if product is None:
-        raise ValueError(f"No active product with ID {product_id} was found.")
-    if product["name"].casefold() != name.strip().casefold():
-        raise ValueError(f"Product name does not match ID {product_id}.")
-
-    return deactivate_product(product_id)
 
 
 def display_product(product):
@@ -183,7 +297,7 @@ def view_inventory():
         return
 
     for row in products:
-        product = dict(row)
+        product = _product_from_row(row)
         display_product(product)
 
         if product["quantity"] <= 0:
@@ -200,20 +314,27 @@ def add_product():
     print("===================================")
 
     name = input("Enter product name: ").strip()
+
     if not name:
         print("Product name cannot be empty.")
         return
 
     price = get_price("Enter product price: $")
+
     if price is None:
         return
 
     quantity = get_quantity("Enter product quantity: ")
+
     if quantity is None:
         return
 
     try:
-        product_id = create_product(name, price, quantity)
+        product_id = create_product(
+            name,
+            price,
+            quantity,
+        )
     except ValueError as error:
         print(error)
         return
@@ -223,43 +344,66 @@ def add_product():
 
 def remove_product():
     try:
-        product_id = int(input("Enter the product ID to remove: "))
+        product_id = int(
+            input("Enter the product ID to remove: ")
+        )
     except ValueError:
-        print("Invalid input. Please enter a valid product ID.")
+        print(
+            "Invalid input. Please enter a valid product ID."
+        )
         return
 
     product = find_product_by_id(product_id)
+
     if product is None:
-        print(f"Product with ID {product_id} not found.")
+        print(
+            f"Product with ID {product_id} not found."
+        )
         return
 
     try:
-        deactivate_product(product_id)
+        remove_product_by_id(product_id)
     except ValueError as error:
         print(error)
         return
 
-    print(f"Product with ID {product_id} has been removed.")
+    print(
+        f"Product with ID {product_id} has been removed."
+    )
 
 
 def update_product():
     try:
-        product_id = int(input("Enter the product ID to update: "))
+        product_id = int(
+            input("Enter the product ID to update: ")
+        )
     except ValueError:
-        print("Invalid input. Please enter a valid product ID.")
+        print(
+            "Invalid input. Please enter a valid product ID."
+        )
         return
 
     product = find_product_by_id(product_id)
+
     if product is None:
-        print(f"Product with ID {product_id} not found.")
+        print(
+            f"Product with ID {product_id} not found."
+        )
         return
 
-    name = input("Enter new product name (leave blank to keep current): ").strip()
-    price_input = input(
-        "Enter new product price (leave blank to keep current): "
+    name = input(
+        "Enter new product name "
+        "(leave blank to keep current): "
     ).strip()
+
+    price_input = input(
+        "Enter new product price "
+        "(leave blank to keep current): "
+    ).strip()
+
     quantity_input = input(
-        "Enter new product quantity (leave blank to keep current): "
+        "Enter new product quantity "
+        "(leave blank to keep current): "
     ).strip()
 
     new_name = name or product["name"]
@@ -270,53 +414,77 @@ def update_product():
         try:
             new_price = float(price_input)
         except ValueError:
-            print("Invalid input. Please enter a valid price.")
+            print(
+                "Invalid input. Please enter a valid price."
+            )
             return
 
         if new_price < 0:
-            print("Price cannot be negative. Please enter a valid price.")
+            print(
+                "Price cannot be negative. "
+                "Please enter a valid price."
+            )
             return
 
     if quantity_input:
         try:
             new_quantity = int(quantity_input)
         except ValueError:
-            print("Invalid input. Please enter a valid quantity.")
+            print(
+                "Invalid input. Please enter a valid quantity."
+            )
             return
 
         if new_quantity < 0:
-            print("Quantity cannot be negative. Please enter a valid quantity.")
+            print(
+                "Quantity cannot be negative. "
+                "Please enter a valid quantity."
+            )
             return
 
     with closing(get_db_connection()) as conn:
         with conn:
             conn.execute(
-                "UPDATE products SET name = ?, price = ?, quantity = ? "
+                "UPDATE products "
+                "SET name = ?, price = ?, quantity = ? "
                 "WHERE id = ? AND is_active = 1",
-                (new_name, new_price, new_quantity, product_id)
+                (
+                    new_name,
+                    new_price,
+                    new_quantity,
+                    product_id,
+                ),
             )
 
-    print(f"Product with ID {product_id} has been updated.")
+    print(
+        f"Product with ID {product_id} has been updated."
+    )
 
 
 def search_product():
-    search_term = input("Enter product name or ID to search: ").strip()
+    search_term = input(
+        "Enter product name or ID to search: "
+    ).strip()
 
     with closing(get_db_connection()) as conn:
         if search_term.isdigit():
             row = conn.execute(
-                "SELECT * FROM products WHERE id = ? AND is_active = 1",
-                (int(search_term),)
+                "SELECT * FROM products "
+                "WHERE id = ? AND is_active = 1",
+                (int(search_term),),
             ).fetchone()
         else:
             row = conn.execute(
                 "SELECT * FROM products "
-                "WHERE LOWER(name) = ? AND is_active = 1",
-                (search_term.lower(),)
+                "WHERE LOWER(name) = ? "
+                "AND is_active = 1",
+                (search_term.lower(),),
             ).fetchone()
 
     if row:
         display_product(dict(row))
         return
 
-    print(f"No product matching '{search_term}' was found.")
+    print(
+        f"No product matching '{search_term}' was found."
+    )

@@ -5,9 +5,9 @@ from contextlib import redirect_stdout
 from unittest.mock import patch
 
 import database.database as database
-from config import TAX_RATE
 from services.checkout import session_cart
 from services.inventory import create_product, find_product_by_id
+from services.money import calculate_tax_cents, from_cents
 from services.transaction_service import view_sales_report
 from ui import sale_view
 
@@ -85,7 +85,7 @@ class SaleViewCheckoutTests(unittest.TestCase):
         conn = database.get_db_connection()
         try:
             transaction = conn.execute(
-                "SELECT total, payment_method FROM transactions"
+                "SELECT total_cents, payment_method FROM transactions"
             ).fetchone()
             product = conn.execute(
                 "SELECT quantity FROM products WHERE id = ?",
@@ -94,17 +94,23 @@ class SaleViewCheckoutTests(unittest.TestCase):
         finally:
             conn.close()
 
-        expected_total = self.product["price"] * (1 + TAX_RATE)
+        subtotal_cents = self.product["price_cents"]
+        tax_cents = calculate_tax_cents(subtotal_cents, 0.0825)
+        expected_total_cents = subtotal_cents + tax_cents
         self.assertEqual(transaction["payment_method"], "Card")
-        self.assertAlmostEqual(transaction["total"], expected_total)
+        self.assertEqual(transaction["total_cents"], expected_total_cents)
         self.assertEqual(product["quantity"], self.product["quantity"] - 1)
         self.assertEqual(receipt["payment_method"], "Card")
-        self.assertAlmostEqual(receipt["subtotal"], self.product["price"])
-        self.assertAlmostEqual(receipt["tax"], self.product["price"] * TAX_RATE)
-        self.assertAlmostEqual(receipt["total"], expected_total)
+        self.assertEqual(receipt["subtotal"], from_cents(subtotal_cents))
+        self.assertEqual(receipt["tax"], from_cents(tax_cents))
+        self.assertEqual(receipt["total"], from_cents(expected_total_cents))
         self.assertEqual(
             receipt["items"],
-            [{"name": self.product["name"], "quantity": 1, "total": self.product["price"]}],
+            [{
+                "name": self.product["name"],
+                "quantity": 1,
+                "total": from_cents(self.product["price_cents"]),
+            }],
         )
         self.assertTrue(session_cart.is_empty())
 
@@ -114,21 +120,24 @@ class SaleViewCheckoutTests(unittest.TestCase):
         self.assertIn("Payment: Card", report.getvalue())
 
     def test_cash_checkout_persists_payment_and_shows_change(self):
-        total_due = self.product["price"] * (1 + TAX_RATE)
-        receipt = self._run_checkout("1", total_due + 5)
+        subtotal_cents = self.product["price_cents"]
+        total_due_cents = subtotal_cents + calculate_tax_cents(subtotal_cents, 0.0825)
+        total_due = from_cents(total_due_cents)
+        receipt = self._run_checkout("1", str(from_cents(total_due_cents + 500)))
 
         conn = database.get_db_connection()
         try:
             transaction = conn.execute(
-                "SELECT payment_method FROM transactions"
+                "SELECT payment_method, total_cents FROM transactions"
             ).fetchone()
         finally:
             conn.close()
 
         self.assertEqual(transaction["payment_method"], "Cash")
+        self.assertEqual(transaction["total_cents"], total_due_cents)
         self.assertEqual(receipt["payment_method"], "Cash")
-        self.assertAlmostEqual(receipt["cash_received"], total_due + 5)
-        self.assertAlmostEqual(receipt["change"], 5)
+        self.assertEqual(receipt["cash_received"], total_due + 5)
+        self.assertEqual(receipt["change"], from_cents(500))
         self.assertEqual(len(receipt["items"]), 1)
         self.assertTrue(session_cart.is_empty())
 
