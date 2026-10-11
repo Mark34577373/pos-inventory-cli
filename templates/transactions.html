@@ -1,0 +1,151 @@
+
+{% extends "base.html" %}
+
+{% block title %}Transactions | TCCP{% endblock %}
+{% block page_heading %}Transactions{% endblock %}
+
+{% block content %}
+<section class="page-intro">
+    <div>
+        <p class="eyebrow">SALES MANAGEMENT</p>
+        <h2>Transaction history</h2>
+        <p class="muted">
+            Search completed sales and open a transaction to review its details.
+        </p>
+    </div>
+
+    <a class="primary-button" href="{{ url_for('sale') }}">
+        + New sale
+    </a>
+</section>
+
+<section class="stats-grid stats-grid-2">
+    <article class="stat-card">
+        <span class="stat-label">Matching transactions</span>
+        <strong class="stat-value">{{ transaction_count }}</strong>
+        <span class="stat-footnote">Based on your filters</span>
+    </article>
+
+    <article class="stat-card">
+        <span class="stat-label">Matching sales total</span>
+        <strong class="stat-value">
+            ${{ "%.2f"|format(total_cents / 100) }}
+        </strong>
+        <span class="stat-footnote">Combined transaction totals</span>
+    </article>
+</section>
+
+<section class="panel">
+    <div class="panel-header">
+        <div>
+            <h3>All transactions</h3>
+            <p class="muted">Up to 200 matching records are displayed.</p>
+        </div>
+    </div>
+
+    <form class="filter-form" method="GET" action="{{ url_for('transactions') }}">
+        <div class="filter-field filter-search">
+            <label for="q">Search</label>
+            <input
+                id="q"
+                type="search"
+                name="q"
+                value="{{ search_text }}"
+                placeholder="Transaction ID or date"
+            >
+        </div>
+
+        <div class="filter-field">
+            <label for="payment_method">Payment method</label>
+            <select id="payment_method" name="payment_method">
+                <option value="">All methods</option>
+                <option value="Cash" {% if payment_method == "Cash" %}selected{% endif %}>Cash</option>
+                <option value="Card" {% if payment_method == "Card" %}selected{% endif %}>Card</option>
+            </select>
+        </div>
+
+        <div class="filter-field">
+            <label for="start_date">From</label>
+            <input
+                id="start_date"
+                type="date"
+                name="start_date"
+                value="{{ start_date }}"
+            >
+        </div>
+
+        <div class="filter-field">
+            <label for="end_date">To</label>
+            <input
+                id="end_date"
+                type="date"
+                name="end_date"
+                value="{{ end_date }}"
+            >
+        </div>
+
+        <div class="filter-actions">
+            <button class="primary-button" type="submit">Apply filters</button>
+            <a class="secondary-button" href="{{ url_for('transactions') }}">Clear</a>
+        </div>
+    </form>
+
+    {% if transactions %}
+        <div class="table-wrap">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Transaction</th>
+                        <th>Date and time</th>
+                        <th>Payment</th>
+                        <th class="text-right">Total</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for transaction in transactions %}
+                    <tr>
+                        <td>
+                            <strong>#{{ transaction["id"] }}</strong>
+                        </td>
+                        <td>{{ transaction["timestamp"] }}</td>
+                        <td>
+                            <span class="payment-pill">
+                                {{ transaction["payment_method"] }}
+                                {% if transaction["payment_method"] == "Card" %}
+                                    <small>(simulated)</small>
+                                {% endif %}
+                            </span>
+                        </td>
+                        <td class="text-right">
+                            <strong>
+                                ${{ "%.2f"|format(transaction["total_cents"] / 100) }}
+                            </strong>
+                        </td>
+                        <td class="text-right">
+                            <a
+                                class="table-link"
+                                href="{{ url_for('transaction_detail', transaction_id=transaction['id']) }}"
+                            >
+                                View details →
+                            </a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <p class="table-footnote">
+            Showing {{ transactions|length }} record(s), with a maximum of 200.
+        </p>
+    {% else %}
+        <div class="empty-state">
+            <span class="empty-state-icon">▧</span>
+            <h3>No transactions found</h3>
+            <p>Try changing your filters or complete a sale first.</p>
+            <a class="primary-button" href="{{ url_for('sale') }}">Start a sale</a>
+        </div>
+    {% endif %}
+</section>
+{% endblock %}

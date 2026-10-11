@@ -1,6 +1,6 @@
 
 import sqlite3
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 
 from flask import (
@@ -14,7 +14,7 @@ from flask import (
 )
 
 from config import TAX_RATE
-from database.database import initialize_database
+from database.database import get_db_connection, initialize_database
 from services.inventory import (
     create_product,
     deactivate_product,
@@ -29,8 +29,8 @@ from services.transaction_service import complete_transaction
 
 app = Flask(__name__)
 
-# Local-development key only. Configure TCCP_SECRET_KEY in the environment
-# before deploying anywhere beyond your own computer.
+# Local-development key only. Use an environment variable and a strong,
+# private secret before deploying beyond your own computer.
 app.secret_key = "tccp-local-development-key"
 
 
@@ -61,7 +61,6 @@ def read_product_form():
 
     if not name:
         raise ValueError("Product name is required.")
-
     if len(name) > 100:
         raise ValueError("Product name must be 100 characters or fewer.")
 
@@ -72,10 +71,8 @@ def read_product_form():
 
     if not price.is_finite() or price <= 0:
         raise ValueError("Price must be greater than $0.00.")
-
     if price > Decimal("1000000"):
         raise ValueError("Price cannot exceed $1,000,000.00.")
-
     if price.as_tuple().exponent < -2:
         raise ValueError("Price can have no more than two decimal places.")
 
@@ -84,22 +81,14 @@ def read_product_form():
     except (ValueError, TypeError):
         raise ValueError("Quantity must be a whole number.") from None
 
-    if quantity < 0:
-        raise ValueError("Quantity cannot be negative.")
-
-    if quantity > 1_000_000:
-        raise ValueError("Quantity cannot exceed 1,000,000.")
+    if not 0 <= quantity <= 1_000_000:
+        raise ValueError("Quantity must be between 0 and 1,000,000.")
 
     return name, price, quantity
 
 
 def get_sale_data():
-    """
-    Build the current sale from database product data.
-
-    The session stores only product IDs and quantities. Prices and stock
-    are looked up again from the database whenever the sale is displayed.
-    """
+    """Build the current sale from current database product data."""
     saved_cart = session.get("sale_cart", {})
     items = []
     unavailable_items = []
@@ -118,7 +107,6 @@ def get_sale_data():
             continue
 
         product = find_product_by_id(product_id)
-
         if product is None:
             unavailable_items.append(f"Product #{product_id}")
             continue
@@ -154,7 +142,7 @@ def get_sale_data():
 
 
 def parse_quantity(value):
-    """Parse a safe, whole-number quantity."""
+    """Parse a safe, positive whole-number quantity."""
     try:
         quantity = int(value)
     except (TypeError, ValueError):
@@ -164,6 +152,40 @@ def parse_quantity(value):
         raise ValueError("Quantity must be between 1 and 1,000,000.")
 
     return quantity
+
+
+def parse_iso_date(value):
+    """Return a date from YYYY-MM-DD input, or None for blank input."""
+    if not value:
+        return None
+
+    try:
+        return date.fromisoformat(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def get_transactions_for_period(start_date, end_date):
+    """Return transaction summaries for an inclusive date range."""
+    conn = get_db_connection()
+    try:
+        rows = conn.execute(
+            """
+            SELECT
+                id,
+                timestamp,
+                total_cents,
+                payment_method
+            FROM transactions
+            WHERE date(timestamp) >= ?
+              AND date(timestamp) <= ?
+            ORDER BY timestamp DESC, id DESC
+            """,
+            (start_date.isoformat(), end_date.isoformat()),
+        ).fetchall()
+        return rows
+    finally:
+        conn.close()
 
 
 @app.route("/")
@@ -182,12 +204,11 @@ def dashboard():
 @app.route("/inventory")
 def inventory():
     search_term = request.args.get("q", "").strip()
-
-    if search_term:
-        products = search_active_products(search_term)
-    else:
-        products = list_active_products()
-
+    products = (
+        search_active_products(search_term)
+        if search_term
+        else list_active_products()
+    )
     summary = get_inventory_summary(products)
 
     return render_template(
@@ -265,10 +286,8 @@ def update_quantity(product_id):
         flash("That product could not be found.", "error")
         return redirect(url_for("inventory"))
 
-    quantity_text = request.form.get("quantity", "").strip()
-
     try:
-        quantity = int(quantity_text)
+        quantity = int(request.form.get("quantity", "").strip())
         if not 0 <= quantity <= 1_000_000:
             raise ValueError
         set_product_quantity(product_id, quantity)
@@ -294,7 +313,6 @@ def remove_product(product_id):
         flash(str(error), "error")
         return redirect(url_for("inventory"))
 
-    # Remove this product from the active browser cart as well.
     cart = session.get("sale_cart", {})
     cart.pop(str(product_id), None)
     session["sale_cart"] = cart
@@ -315,13 +333,11 @@ def sale():
         else list_active_products()
     )
 
-    sale_data = get_sale_data()
-
     return render_template(
         "sale.html",
         products=products,
         search_term=search_term,
-        **sale_data,
+        **get_sale_data(),
     )
 
 
@@ -359,7 +375,6 @@ def sale_add():
 
     cart[key] = new_quantity
     session["sale_cart"] = cart
-
     flash(f'Added {quantity_to_add} × "{product["name"]}" to the cart.', "success")
     return redirect(url_for("sale", q=request.form.get("return_q", "").strip()))
 
@@ -452,10 +467,8 @@ def sale_checkout():
     change_cents = None
 
     if payment_method == "Cash":
-        cash_text = request.form.get("cash_received", "").strip()
-
         try:
-            cash_decimal = Decimal(cash_text)
+            cash_decimal = Decimal(request.form.get("cash_received", "").strip())
             if not cash_decimal.is_finite() or cash_decimal < 0:
                 raise ValueError
             cash_received_cents = to_cents(cash_decimal)
@@ -472,8 +485,6 @@ def sale_checkout():
 
         change_cents = cash_received_cents - total_cents
 
-    # complete_transaction re-reads current prices and stock from SQLite,
-    # checks the submitted total, and commits the sale atomically.
     items_to_log = [
         {
             "id": item["product"]["id"],
@@ -500,18 +511,17 @@ def sale_checkout():
         )
         return redirect(url_for("sale"))
 
-    # Keep a display snapshot for the receipt. Never use this session snapshot
-    # to calculate future sales or change inventory.
-    receipt_items = []
-    for item in sale_data["items"]:
-        receipt_items.append({
+    receipt_items = [
+        {
             "name": item["product"]["name"],
             "quantity": item["quantity"],
             "unit_price_cents": item["price_cents"],
             "line_total_cents": item["line_total_cents"],
-        })
+        }
+        for item in sale_data["items"]
+    ]
 
-    receipt = {
+    session["last_receipt"] = {
         "transaction_id": transaction_id,
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "items": receipt_items,
@@ -525,8 +535,6 @@ def sale_checkout():
     }
 
     session.pop("sale_cart", None)
-    session["last_receipt"] = receipt
-
     return redirect(url_for("receipt"))
 
 
@@ -539,6 +547,253 @@ def receipt():
         return redirect(url_for("sale"))
 
     return render_template("receipt.html", receipt=receipt_data)
+
+
+# -------------------------------------------------------------------
+# DAY 11: TRANSACTION HISTORY
+# -------------------------------------------------------------------
+
+@app.route("/transactions")
+def transactions():
+    search_text = request.args.get("q", "").strip()
+    payment_method = request.args.get("payment_method", "").strip().title()
+    start_text = request.args.get("start_date", "").strip()
+    end_text = request.args.get("end_date", "").strip()
+
+    if payment_method not in ("", "Cash", "Card"):
+        payment_method = ""
+
+    start_date = parse_iso_date(start_text) if start_text else None
+    end_date = parse_iso_date(end_text) if end_text else None
+
+    if start_text and start_date is None:
+        flash("The start date is invalid. Use the date picker.", "error")
+    if end_text and end_date is None:
+        flash("The end date is invalid. Use the date picker.", "error")
+
+    if start_date and end_date and start_date > end_date:
+        flash("Start date cannot be later than end date.", "error")
+        start_date = None
+        end_date = None
+
+    conditions = []
+    params = []
+
+    if search_text:
+        if search_text.isdigit():
+            conditions.append("id = ?")
+            params.append(int(search_text))
+        else:
+            conditions.append("(CAST(id AS TEXT) LIKE ? OR timestamp LIKE ?)")
+            params.extend([f"%{search_text}%", f"%{search_text}%"])
+
+    if payment_method:
+        conditions.append("payment_method = ?")
+        params.append(payment_method)
+
+    if start_date:
+        conditions.append("date(timestamp) >= ?")
+        params.append(start_date.isoformat())
+
+    if end_date:
+        conditions.append("date(timestamp) <= ?")
+        params.append(end_date.isoformat())
+
+    where_clause = " AND ".join(conditions) if conditions else "1 = 1"
+
+    conn = get_db_connection()
+    try:
+        summary = conn.execute(
+            f"""
+            SELECT
+                COUNT(*) AS transaction_count,
+                COALESCE(SUM(total_cents), 0) AS total_cents
+            FROM transactions
+            WHERE {where_clause}
+            """,
+            params,
+        ).fetchone()
+
+        rows = conn.execute(
+            f"""
+            SELECT id, timestamp, total_cents, payment_method
+            FROM transactions
+            WHERE {where_clause}
+            ORDER BY timestamp DESC, id DESC
+            LIMIT 200
+            """,
+            params,
+        ).fetchall()
+    finally:
+        conn.close()
+
+    return render_template(
+        "transactions.html",
+        transactions=rows,
+        search_text=search_text,
+        payment_method=payment_method,
+        start_date=start_text if start_date else "",
+        end_date=end_text if end_date else "",
+        transaction_count=summary["transaction_count"],
+        total_cents=summary["total_cents"],
+    )
+
+
+@app.route("/transactions/<int:transaction_id>")
+def transaction_detail(transaction_id):
+    conn = get_db_connection()
+    try:
+        transaction = conn.execute(
+            """
+            SELECT id, timestamp, total_cents, payment_method
+            FROM transactions
+            WHERE id = ?
+            """,
+            (transaction_id,),
+        ).fetchone()
+
+        if transaction is None:
+            transaction_items = []
+        else:
+            transaction_items = conn.execute(
+                """
+                SELECT
+                    product_name,
+                    quantity,
+                    price_cents,
+                    quantity * price_cents AS line_total_cents
+                FROM transaction_items
+                WHERE transaction_id = ?
+                ORDER BY rowid
+                """,
+                (transaction_id,),
+            ).fetchall()
+    finally:
+        conn.close()
+
+    if transaction is None:
+        flash(f"Transaction #{transaction_id} was not found.", "error")
+        return redirect(url_for("transactions"))
+
+    subtotal_cents = sum(
+        item["line_total_cents"] for item in transaction_items
+    )
+    tax_cents = transaction["total_cents"] - subtotal_cents
+
+    return render_template(
+        "transaction_detail.html",
+        transaction=transaction,
+        items=transaction_items,
+        subtotal_cents=subtotal_cents,
+        tax_cents=tax_cents,
+    )
+
+
+# -------------------------------------------------------------------
+# DAY 11: SALES REPORTS
+# -------------------------------------------------------------------
+
+@app.route("/reports")
+def reports():
+    today = date.today()
+    default_start = today - timedelta(days=29)
+
+    start_text = request.args.get(
+        "start_date", default_start.isoformat()
+    ).strip()
+    end_text = request.args.get(
+        "end_date", today.isoformat()
+    ).strip()
+
+    start_date = parse_iso_date(start_text)
+    end_date = parse_iso_date(end_text)
+
+    if start_date is None or end_date is None:
+        flash("Choose valid start and end dates.", "error")
+        start_date = default_start
+        end_date = today
+    elif start_date > end_date:
+        flash("Start date cannot be later than end date.", "error")
+        start_date = default_start
+        end_date = today
+
+    start_value = start_date.isoformat()
+    end_value = end_date.isoformat()
+
+    conn = get_db_connection()
+    try:
+        overview = conn.execute(
+            """
+            SELECT
+                COUNT(*) AS transaction_count,
+                COALESCE(SUM(total_cents), 0) AS revenue_cents,
+                COALESCE(AVG(total_cents), 0) AS average_sale_cents
+            FROM transactions
+            WHERE date(timestamp) >= ?
+              AND date(timestamp) <= ?
+            """,
+            (start_value, end_value),
+        ).fetchone()
+
+        payment_rows = conn.execute(
+            """
+            SELECT
+                payment_method,
+                COUNT(*) AS transaction_count,
+                COALESCE(SUM(total_cents), 0) AS revenue_cents
+            FROM transactions
+            WHERE date(timestamp) >= ?
+              AND date(timestamp) <= ?
+            GROUP BY payment_method
+            ORDER BY revenue_cents DESC
+            """,
+            (start_value, end_value),
+        ).fetchall()
+
+        daily_rows = conn.execute(
+            """
+            SELECT
+                date(timestamp) AS sale_date,
+                COUNT(*) AS transaction_count,
+                COALESCE(SUM(total_cents), 0) AS revenue_cents
+            FROM transactions
+            WHERE date(timestamp) >= ?
+              AND date(timestamp) <= ?
+            GROUP BY date(timestamp)
+            ORDER BY sale_date DESC
+            """,
+            (start_value, end_value),
+        ).fetchall()
+
+        top_product_rows = conn.execute(
+            """
+            SELECT
+                ti.product_name,
+                SUM(ti.quantity) AS units_sold,
+                SUM(ti.quantity * ti.price_cents) AS revenue_cents
+            FROM transaction_items AS ti
+            JOIN transactions AS t
+              ON t.id = ti.transaction_id
+            WHERE date(t.timestamp) >= ?
+              AND date(t.timestamp) <= ?
+            GROUP BY ti.product_name
+            ORDER BY units_sold DESC, revenue_cents DESC
+            LIMIT 10
+            """,
+            (start_value, end_value),
+        ).fetchall()
+    finally:
+        conn.close()
+
+    return render_template(
+        "reports.html",
+        start_date=start_value,
+        end_date=end_value,
+        overview=overview,
+        payment_rows=payment_rows,
+        daily_rows=daily_rows,
+        top_product_rows=top_product_rows,
+    )
 
 
 @app.errorhandler(404)

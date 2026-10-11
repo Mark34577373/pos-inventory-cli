@@ -1,0 +1,230 @@
+
+{% extends "base.html" %}
+
+{% block title %}Sales Reports | TCCP{% endblock %}
+{% block page_heading %}Sales reports{% endblock %}
+
+{% block content %}
+<section class="page-intro">
+    <div>
+        <p class="eyebrow">BUSINESS PERFORMANCE</p>
+        <h2>Sales overview</h2>
+        <p class="muted">
+            Understand revenue, transaction volume, and product performance.
+        </p>
+    </div>
+
+    <a class="secondary-button" href="{{ url_for('transactions') }}">
+        View transactions →
+    </a>
+</section>
+
+<section class="panel">
+    <div class="panel-header">
+        <div>
+            <h3>Reporting period</h3>
+            <p class="muted">Select the dates you want to analyze.</p>
+        </div>
+    </div>
+
+    <form class="filter-form report-filter" method="GET" action="{{ url_for('reports') }}">
+        <div class="filter-field">
+            <label for="start_date">Start date</label>
+            <input
+                id="start_date"
+                type="date"
+                name="start_date"
+                value="{{ start_date }}"
+                required
+            >
+        </div>
+
+        <div class="filter-field">
+            <label for="end_date">End date</label>
+            <input
+                id="end_date"
+                type="date"
+                name="end_date"
+                value="{{ end_date }}"
+                required
+            >
+        </div>
+
+        <div class="filter-actions">
+            <button class="primary-button" type="submit">Update report</button>
+        </div>
+    </form>
+
+    <p class="report-period-note">
+        Showing {{ start_date }} through {{ end_date }}, inclusive.
+    </p>
+</section>
+
+<section class="stats-grid stats-grid-3">
+    <article class="stat-card">
+        <span class="stat-label">Total revenue</span>
+        <strong class="stat-value">
+            ${{ "%.2f"|format(overview["revenue_cents"] / 100) }}
+        </strong>
+        <span class="stat-footnote">Recorded sales in this period</span>
+    </article>
+
+    <article class="stat-card">
+        <span class="stat-label">Transactions</span>
+        <strong class="stat-value">
+            {{ overview["transaction_count"] }}
+        </strong>
+        <span class="stat-footnote">Completed sales</span>
+    </article>
+
+    <article class="stat-card">
+        <span class="stat-label">Average sale</span>
+        <strong class="stat-value">
+            ${{ "%.2f"|format(overview["average_sale_cents"] / 100) }}
+        </strong>
+        <span class="stat-footnote">Average transaction total</span>
+    </article>
+</section>
+
+<div class="reports-grid">
+    <section class="panel">
+        <div class="panel-header">
+            <div>
+                <h3>Payment breakdown</h3>
+                <p class="muted">Revenue by payment method</p>
+            </div>
+        </div>
+
+        {% if payment_rows %}
+            <div class="table-wrap">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Method</th>
+                            <th class="text-right">Sales</th>
+                            <th class="text-right">Revenue</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in payment_rows %}
+                        <tr>
+                            <td>
+                                <span class="payment-pill">
+                                    {{ row["payment_method"] }}
+                                </span>
+                            </td>
+                            <td class="text-right">
+                                {{ row["transaction_count"] }}
+                            </td>
+                            <td class="text-right">
+                                <strong>
+                                    ${{ "%.2f"|format(row["revenue_cents"] / 100) }}
+                                </strong>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% else %}
+            <div class="empty-state compact-empty">
+                <h3>No sales yet</h3>
+                <p>Completed sales will appear here.</p>
+            </div>
+        {% endif %}
+    </section>
+
+    <section class="panel">
+        <div class="panel-header">
+            <div>
+                <h3>Top-selling products</h3>
+                <p class="muted">Ranked by units sold</p>
+            </div>
+        </div>
+
+        {% if top_product_rows %}
+            <div class="table-wrap">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Product</th>
+                            <th class="text-right">Units</th>
+                            <th class="text-right">Sales value</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for product in top_product_rows %}
+                        <tr>
+                            <td><strong>{{ product["product_name"] }}</strong></td>
+                            <td class="text-right">{{ product["units_sold"] }}</td>
+                            <td class="text-right">
+                                ${{ "%.2f"|format(product["revenue_cents"] / 100) }}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% else %}
+            <div class="empty-state compact-empty">
+                <h3>No product sales</h3>
+                <p>Products from completed sales will appear here.</p>
+            </div>
+        {% endif %}
+    </section>
+</div>
+
+<section class="panel">
+    <div class="panel-header">
+        <div>
+            <h3>Daily sales</h3>
+            <p class="muted">Daily totals for dates with recorded transactions</p>
+        </div>
+    </div>
+
+    {% if daily_rows %}
+        <div class="table-wrap">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th class="text-right">Transactions</th>
+                        <th class="text-right">Revenue</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for day in daily_rows %}
+                    <tr>
+                        <td>
+                            <strong>{{ day["sale_date"] }}</strong>
+                        </td>
+                        <td class="text-right">{{ day["transaction_count"] }}</td>
+                        <td class="text-right">
+                            <strong>
+                                ${{ "%.2f"|format(day["revenue_cents"] / 100) }}
+                            </strong>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% else %}
+        <div class="empty-state">
+            <span class="empty-state-icon">▥</span>
+            <h3>No sales in this period</h3>
+            <p>Try a different date range or complete a test sale.</p>
+            <a class="primary-button" href="{{ url_for('sale') }}">Start a sale</a>
+        </div>
+    {% endif %}
+</section>
+
+<div class="page-actions">
+    <a class="secondary-button" href="{{ url_for('transactions') }}">
+        Open transaction history
+    </a>
+    <a class="primary-button" href="{{ url_for('sale') }}">
+        + New sale
+    </a>
+</div>
+{% endblock %}

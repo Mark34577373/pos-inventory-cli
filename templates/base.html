@@ -3,10 +3,13 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="description" content="TCCP point-of-sale and inventory management.">
-    <title>{% block title %}TCCP{% endblock %}</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#111827">
+    <title>{% block title %}TCCP | Point of Sale{% endblock %}</title>
+    <link
+        rel="stylesheet"
+        href="{{ url_for('static', filename='css/style.css') }}"
+    >
 </head>
 <body>
     <div class="app-shell">
@@ -19,84 +22,95 @@
                 </span>
             </a>
 
-            <div class="nav-label">WORKSPACE</div>
+            <div class="sidebar-label">WORKSPACE</div>
 
-            <nav class="navigation" aria-label="Main navigation">
-                <a class="nav-link {% if request.endpoint == 'dashboard' %}active{% endif %}"
-                   href="{{ url_for('dashboard') }}">
-                    <span class="nav-icon">▦</span><span>Dashboard</span>
+            <nav class="sidebar-nav" aria-label="Main navigation">
+                <a
+                    class="nav-link {% if request.endpoint == 'dashboard' %}active{% endif %}"
+                    href="{{ url_for('dashboard') }}"
+                >
+                    <span class="nav-icon">⌂</span>
+                    <span>Dashboard</span>
                 </a>
 
-                <a class="nav-link {% if request.endpoint == 'inventory' %}active{% endif %}"
-                   href="{{ url_for('inventory') }}">
-                    <span class="nav-icon">▤</span><span>Inventory</span>
+                <a
+                    class="nav-link {% if request.endpoint in ['inventory', 'add_product', 'edit_product', 'update_quantity', 'remove_product'] %}active{% endif %}"
+                    href="{{ url_for('inventory') }}"
+                >
+                    <span class="nav-icon">▤</span>
+                    <span>Inventory</span>
                 </a>
 
-                <a class="nav-link {% if request.endpoint in ['sale', 'sale_add', 'sale_update', 'sale_remove', 'sale_cancel', 'sale_checkout'] %}active{% endif %}"
-                   href="{{ url_for('sale') }}">
-                    <span class="nav-icon">＋</span><span>New sale</span>
+                <a
+                    class="nav-link {% if request.endpoint in ['sale', 'sale_add', 'sale_update', 'sale_remove', 'sale_cancel', 'sale_checkout'] %}active{% endif %}"
+                    href="{{ url_for('sale') }}"
+                >
+                    <span class="nav-icon">＋</span>
+                    <span>New sale</span>
                 </a>
 
-                <a class="nav-link nav-disabled" aria-disabled="true">
-                    <span class="nav-icon">↻</span><span>Transactions</span>
-                    <span class="nav-soon">Soon</span>
+                <a
+                    class="nav-link {% if request.endpoint in ['transactions', 'transaction_detail'] %}active{% endif %}"
+                    href="{{ url_for('transactions') }}"
+                >
+                    <span class="nav-icon">▧</span>
+                    <span>Transactions</span>
                 </a>
 
-                <a class="nav-link nav-disabled" aria-disabled="true">
-                    <span class="nav-icon">▥</span><span>Reports</span>
-                    <span class="nav-soon">Soon</span>
+                <a
+                    class="nav-link {% if request.endpoint == 'reports' %}active{% endif %}"
+                    href="{{ url_for('reports') }}"
+                >
+                    <span class="nav-icon">▥</span>
+                    <span>Reports</span>
                 </a>
             </nav>
 
-            <div class="sidebar-spacer"></div>
-
-            <div class="sidebar-status">
-                <span class="status-dot"></span>
-                <span>
-                    <strong>Local workspace</strong>
-                    <small>Using SQLite database</small>
-                </span>
+            <div class="sidebar-bottom">
+                <div class="sidebar-status">
+                    <span class="status-dot"></span>
+                    <span>Local system</span>
+                </div>
+                <small>Development edition</small>
             </div>
-
-            <div class="sidebar-footer">TCCP · Development version</div>
         </aside>
 
-        <main class="main-content">
+        <main class="main-area">
             <header class="topbar">
                 <div class="topbar-heading">
-                    <span class="eyebrow">THE CREDIT CARD PROCESSOR</span>
-                    <h1 class="page-heading">{% block page_heading %}Dashboard{% endblock %}</h1>
+                    <p class="eyebrow">THE CREDIT CARD PROCESSOR</p>
+                    <h1>{% block page_heading %}Dashboard{% endblock %}</h1>
                 </div>
 
                 <div class="user-chip">
-                    <span class="avatar">T</span>
-                    <span class="user-copy">
+                    <span class="user-avatar">T</span>
+                    <span>
                         <strong>Store Admin</strong>
-                        <small>Administrator</small>
+                        <small>Local workspace</small>
                     </span>
                 </div>
             </header>
 
-            <section class="page-content">
+            <div class="page-content">
                 {% with messages = get_flashed_messages(with_categories=true) %}
                     {% if messages %}
-                    <div class="flash-stack" aria-live="polite">
-                        {% for category, message in messages %}
-                        <div class="flash-message flash-{{ category }}">
-                            <span>{{ message }}</span>
+                        <div class="flash-stack" aria-live="polite">
+                            {% for category, message in messages %}
+                                <div class="flash-message flash-{{ category }}">
+                                    <span>{{ message }}</span>
+                                </div>
+                            {% endfor %}
                         </div>
-                        {% endfor %}
-                    </div>
                     {% endif %}
                 {% endwith %}
 
                 {% block content %}{% endblock %}
+            </div>
 
-                <footer class="page-footer">
-                    <span>TCCP Point of Sale</span>
-                    <span>Inventory management workspace</span>
-                </footer>
-            </section>
+            <footer class="app-footer">
+                <span>TCCP</span>
+                <span>Inventory · Checkout · Sales</span>
+            </footer>
         </main>
     </div>
 
