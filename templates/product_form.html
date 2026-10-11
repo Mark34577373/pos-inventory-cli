@@ -1,0 +1,94 @@
+
+{% extends "base.html" %}
+
+{% if mode == "create" %}
+    {% set form_title = "Add product" %}
+    {% set page_title = "New product" %}
+{% else %}
+    {% set form_title = "Edit product" %}
+    {% set page_title = "Edit product" %}
+{% endif %}
+
+{% block title %}{{ page_title }} | TCCP{% endblock %}
+{% block page_heading %}{{ page_title }}{% endblock %}
+
+{% block content %}
+<section class="form-page">
+    <a class="back-link" href="{{ url_for('inventory') }}">← Back to inventory</a>
+
+    <div class="form-panel">
+        <div class="form-panel-heading">
+            <div class="eyebrow content-eyebrow">PRODUCT MANAGEMENT</div>
+            <h2 class="welcome-title">{{ form_title }}</h2>
+            <p class="muted">
+                {% if mode == "create" %}
+                    Enter the details for the product you want to add.
+                {% else %}
+                    Update the product details and stock quantity.
+                {% endif %}
+            </p>
+        </div>
+
+        <form method="post" class="product-form">
+            <div class="form-field">
+                <label for="name">Product name</label>
+                <input
+                    id="name"
+                    name="name"
+                    type="text"
+                    maxlength="100"
+                    placeholder="e.g. Wireless Mouse"
+                    value="{{ form_values.get('name', product.name if product else '') }}"
+                    required
+                    autofocus
+                >
+                <span class="field-help">Use a clear name customers will recognize.</span>
+            </div>
+
+            <div class="form-grid">
+                <div class="form-field">
+                    <label for="price">Unit price ($)</label>
+                    <input
+                        id="price"
+                        name="price"
+                        type="number"
+                        min="0.01"
+                        max="1000000"
+                        step="0.01"
+                        placeholder="12.99"
+                        value="{{ form_values.get('price', '%.2f'|format(product.price_cents / 100) if product else '') }}"
+                        required
+                    >
+                </div>
+
+                <div class="form-field">
+                    <label for="quantity">Quantity in stock</label>
+                    <input
+                        id="quantity"
+                        name="quantity"
+                        type="number"
+                        min="0"
+                        max="1000000"
+                        step="1"
+                        placeholder="25"
+                        value="{{ form_values.get('quantity', product.quantity if product else '0') }}"
+                        required
+                    >
+                </div>
+            </div>
+
+            <div class="form-note">
+                <span class="note-icon">i</span>
+                <p>Prices are saved to the nearest cent. A quantity of zero marks the product as out of stock.</p>
+            </div>
+
+            <div class="form-actions">
+                <a class="secondary-button" href="{{ url_for('inventory') }}">Cancel</a>
+                <button class="primary-button" type="submit">
+                    {% if mode == "create" %}Create product{% else %}Save changes{% endif %}
+                </button>
+            </div>
+        </form>
+    </div>
+</section>
+{% endblock %}
