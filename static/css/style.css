@@ -3378,3 +3378,20 @@ select:focus-visible, textarea:focus-visible { outline: 3px solid #3978e8; outli
 .stock-alerts { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px,1fr)); gap: 18px; margin-bottom: 24px; }
 .stock-alerts li { margin: 12px 0; overflow-wrap: anywhere; }
 @media (max-width: 600px) { .inventory-filters { grid-template-columns: 1fr; } .inventory-links { gap: 8px; } }
+
+/* Day 16: scoped, keyboard-accessible sales charts. */
+.analytics-chart { overflow-x: auto; padding: 14px 0; }
+.analytics-chart-bars { display: flex; align-items: stretch; gap: 16px; width: max-content; min-width: 100%; }
+.analytics-chart-column { display: flex; flex: 1 0 100px; width: 100px; flex-direction: column; gap: 10px; align-items: center; font-variant-numeric: tabular-nums; }
+.analytics-chart-value { max-width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.analytics-chart-track { display: flex; align-items: end; width: 100%; height: 180px; border-radius: 7px 7px 0 0; background: #f1f5f9; }
+.analytics-chart-bar { display: block; width: 100%; min-height: 0; padding: 0; border: 0; background: #3978e8; cursor: pointer; border-radius: 7px 7px 0 0; }
+.analytics-chart-bar[aria-pressed="true"] { background: #1e40af; outline: 3px solid #172033; outline-offset: 2px; }
+.analytics-chart-selection { display: block; padding: 12px; margin: 12px 0; background: #eff6ff; border-radius: 8px; }
+.analytics-product-row { display: grid; grid-template-columns: minmax(100px,1fr) minmax(90px,2fr) auto; align-items: center; gap: 16px; margin: 18px 0; }
+.analytics-product-row strong { overflow-wrap: anywhere; }
+.analytics-product-track { height: 16px; border-radius: 8px; background: #f1f5f9; }
+.analytics-product-track span { display: block; height: 100%; background: #3978e8; border-radius: 8px; }
+.analytics-disclosure { padding: 10px 0; }
+.comparison-panel strong { font-variant-numeric: tabular-nums; }
+@media (max-width: 600px) { .analytics-product-row { grid-template-columns: 1fr auto; gap: 8px; } .analytics-product-track { grid-column: 1/-1; grid-row: 2; } }

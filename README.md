@@ -135,3 +135,15 @@ Every quantity change is audited atomically with its operation, including checko
 Apply migration **15** with `python manage.py init` while writers are stopped, then run `python manage.py check`. The command backs up an existing database. Production requires migration 15 before startup. No working database is migrated automatically by this implementation.
 
 See [Day 15 usage, isolation and recovery notes](docs/DAY15.md) for normalization rules, filters, quantity semantics, history constraints, migration verification, recovery and remaining limitations.
+
+## Day 16 sales analytics
+
+Open **Sales analytics** for daily, Monday-based weekly or monthly trends, Top 5/10 historical products, recorded sale totals, item sales, transaction counts, average order values and previous-period comparisons. Choose a date preset or a custom range (maximum 366 days). Charts include zero-sales periods and support mouse/keyboard inspection.
+
+Download four CSV reports from the page: summary, period revenue, selected top products and transaction history. Each download is independently authorized and uses the same filters. Files include store/period/timezone metadata and spreadsheet formula protection. PDF is not included because no PDF infrastructure is installed.
+
+Money totals remain integer cents. Recorded sale totals include tax; item sales use historical recorded prices before tax. The difference is labeled tax/reconciliation difference, with warnings for unverified legacy details. Refunds, voids, discounts and profit are not invented. Reporting respects the existing business-local timestamps and deployment timezone (`TCCP_TIMEZONE`); keep that setting stable for historical data.
+
+Migration **16** adds two store-aware indexes only. Stop writers, run `python manage.py init` (which backs up an existing database), then `python manage.py check`. Production requires migration 16 before startup. Reports are bounded to 10,000 transactions per current/comparison period and 50,000 current line items; narrow the range if a report exceeds the limits.
+
+See [Day 16 metric definitions, dates, exports and security notes](docs/DAY16.md) for reconciliation rules, DST limitations, store isolation, query limits, performance and recovery.

@@ -9,6 +9,7 @@
     <div>
         <p class="eyebrow">BUSINESS PERFORMANCE</p>
         <h2>Sales overview</h2>
+        <a class="text-link" href="{{ url_for('analytics.overview',preset='custom',start_date=start_date,end_date=end_date) }}">Advanced analytics and CSV downloads →</a>
         <p class="muted">
             Understand revenue, transaction volume, and product performance.
         </p>
@@ -62,11 +63,11 @@
 
 <section class="stats-grid stats-grid-3">
     <article class="stat-card">
-        <span class="stat-label">Total revenue</span>
+        <span class="stat-label">Recorded sale totals</span>
         <strong class="stat-value">
-            ${{ "%.2f"|format(overview["revenue_cents"] / 100) }}
+            {{ overview["revenue_cents"]|money }}
         </strong>
-        <span class="stat-footnote">Recorded sales in this period</span>
+        <span class="stat-footnote">Tax included · committed transactions</span>
     </article>
 
     <article class="stat-card">
@@ -80,7 +81,7 @@
     <article class="stat-card">
         <span class="stat-label">Average sale</span>
         <strong class="stat-value">
-            ${{ "%.2f"|format(overview["average_sale_cents"] / 100) }}
+            {{ overview["average_sale_cents"]|money }}
         </strong>
         <span class="stat-footnote">Average transaction total</span>
     </article>
@@ -91,7 +92,7 @@
         <div class="panel-header">
             <div>
                 <h3>Payment breakdown</h3>
-                <p class="muted">Revenue by payment method</p>
+                <p class="muted">Recorded totals by payment method (tax included)</p>
             </div>
         </div>
 
@@ -118,7 +119,7 @@
                             </td>
                             <td class="text-right">
                                 <strong>
-                                    ${{ "%.2f"|format(row["revenue_cents"] / 100) }}
+                                    {{ row["revenue_cents"]|money }}
                                 </strong>
                             </td>
                         </tr>
@@ -158,7 +159,7 @@
                             <td><strong>{{ product["product_name"] }}</strong></td>
                             <td class="text-right">{{ product["units_sold"] }}</td>
                             <td class="text-right">
-                                ${{ "%.2f"|format(product["revenue_cents"] / 100) }}
+                                {{ product["revenue_cents"]|money }}
                             </td>
                         </tr>
                         {% endfor %}
@@ -201,7 +202,7 @@
                         <td class="text-right">{{ day["transaction_count"] }}</td>
                         <td class="text-right">
                             <strong>
-                                ${{ "%.2f"|format(day["revenue_cents"] / 100) }}
+                                {{ day["revenue_cents"]|money }}
                             </strong>
                         </td>
                     </tr>

@@ -18,12 +18,14 @@ from flask import (
     url_for,
 )
 
+from analytics_routes import bp as analytics_blueprint
 from auth_routes import bp as auth_blueprint
 from config import TAX_RATE, business_now
 from database.database import get_store_connection as get_db_connection
 from database.database import initialize_database
 from inventory_routes import bp as inventory_blueprint
 from inventory_routes import pagination_links
+from services.analytics import ReportLimitError, build_analytics, resolve_filters
 from services.auth import load_identity
 from services.inventory import (
     create_product,
@@ -41,11 +43,12 @@ from services.inventory_management import (
     query_inventory,
     stock_status,
 )
-from services.money import calculate_tax_cents, from_cents, parse_cash
+from services.money import calculate_tax_cents, format_cents, from_cents, parse_cash
 from services.transaction_service import complete_transaction
 
 app = Flask(__name__)
 app.register_blueprint(auth_blueprint)
+app.register_blueprint(analytics_blueprint)
 app.register_blueprint(inventory_blueprint)
 
 app.secret_key = os.environ.get("TCCP_SECRET_KEY") or secrets.token_hex(32)
@@ -67,7 +70,7 @@ if os.environ.get("TCCP_ENV") == "production":
     from pathlib import Path
     try:
         with closing(sqlite3.connect(Path(os.environ["TCCP_DB_PATH"]).resolve().as_uri() + "?mode=ro", uri=True)) as startup_db:
-            if startup_db.execute("SELECT 1 FROM schema_migrations WHERE version=15").fetchone() is None:
+            if startup_db.execute("SELECT 1 FROM schema_migrations WHERE version=16").fetchone() is None:
                 raise RuntimeError("Run the explicit database migration before production startup.")
     except sqlite3.Error:
         raise RuntimeError("Production requires an existing database migrated with manage.py init.") from None
@@ -81,6 +84,7 @@ def csrf_token():
 
 
 app.jinja_env.globals["csrf_token"] = csrf_token
+app.jinja_env.filters["money"] = format_cents
 
 
 @app.before_request
@@ -907,105 +911,27 @@ def transaction_detail(transaction_id):
 
 @app.route("/reports")
 def reports():
-    today = business_now().date()
-    default_start = today - timedelta(days=29)
-
-    start_text = request.args.get(
-        "start_date", default_start.isoformat()
-    ).strip()
-    end_text = request.args.get(
-        "end_date", today.isoformat()
-    ).strip()
-
-    start_date = parse_iso_date(start_text)
-    end_date = parse_iso_date(end_text)
-
-    if start_date is None or end_date is None:
-        flash("Choose valid start and end dates.", "error")
-        start_date = default_start
-        end_date = today
-    elif start_date > end_date:
-        flash("Start date cannot be later than end date.", "error")
-        start_date = default_start
-        end_date = today
-
-    start_value = start_date.isoformat()
-    end_value = end_date.isoformat()
-
-    conn = get_db_connection()
+    today=business_now().date()
     try:
-        overview = conn.execute(
-            """
-            SELECT
-                COUNT(*) AS transaction_count,
-                COALESCE(SUM(total_cents), 0) AS revenue_cents,
-                COALESCE(AVG(total_cents), 0) AS average_sale_cents
-            FROM transactions
-            WHERE store_id=authorized_store_id() AND date(timestamp) >= ?
-              AND date(timestamp) <= ?
-            """,
-            (start_value, end_value),
-        ).fetchone()
-
-        payment_rows = conn.execute(
-            """
-            SELECT
-                payment_method,
-                COUNT(*) AS transaction_count,
-                COALESCE(SUM(total_cents), 0) AS revenue_cents
-            FROM transactions
-            WHERE store_id=authorized_store_id() AND date(timestamp) >= ?
-              AND date(timestamp) <= ?
-            GROUP BY payment_method
-            ORDER BY revenue_cents DESC
-            """,
-            (start_value, end_value),
-        ).fetchall()
-
-        daily_rows = conn.execute(
-            """
-            SELECT
-                date(timestamp) AS sale_date,
-                COUNT(*) AS transaction_count,
-                COALESCE(SUM(total_cents), 0) AS revenue_cents
-            FROM transactions
-            WHERE store_id=authorized_store_id() AND date(timestamp) >= ?
-              AND date(timestamp) <= ?
-            GROUP BY date(timestamp)
-            ORDER BY sale_date DESC
-            """,
-            (start_value, end_value),
-        ).fetchall()
-
-        top_product_rows = conn.execute(
-            """
-            SELECT
-                ti.product_name,
-                SUM(ti.quantity) AS units_sold,
-                SUM(ti.quantity * ti.price_cents) AS revenue_cents
-            FROM transaction_items AS ti
-            JOIN transactions AS t
-              ON t.id = ti.transaction_id
-            WHERE t.store_id=authorized_store_id() AND ti.store_id=authorized_store_id() AND date(t.timestamp) >= ?
-              AND date(t.timestamp) <= ?
-            GROUP BY ti.product_id, ti.product_name
-            ORDER BY units_sold DESC, revenue_cents DESC
-            LIMIT 10
-            """,
-            (start_value, end_value),
-        ).fetchall()
-    finally:
-        conn.close()
-
-    return render_template(
-        "reports.html",
-        start_date=start_value,
-        end_date=end_value,
-        overview=overview,
-        payment_rows=payment_rows,
-        daily_rows=daily_rows,
-        top_product_rows=top_product_rows,
-    )
+        filters=resolve_filters(request.args,today=today)
+    except ValueError as error:
+        # Preserve the existing Reports page's forgiving date-picker behavior.
+        # The new /analytics and downloads reject malformed ranges with 400.
+        flash(str(error),'error')
+        filters=resolve_filters({},today=today)
+    try:
+        data=build_analytics(filters)
+    except ReportLimitError as error:
+        return render_template('error.html',message=str(error)),413
+    overview=dict(data['summary'],average_sale_cents=data['summary']['average_order_cents'])
+    daily_filters=resolve_filters(dict(filters.query_args(),group='daily'))
+    # The shared service's daily series is already available when Reports uses
+    # the default daily grouping; only aggregate again for an explicit grouping.
+    daily=data['series'] if filters.group=='daily' else build_analytics(daily_filters)['series']
+    return render_template('reports.html', start_date=filters.start.isoformat(),end_date=filters.end.isoformat(),
+        overview=overview,payment_rows=data['payment_rows'],
+        daily_rows=[dict(row,sale_date=row['period_start']) for row in reversed(daily) if row['transaction_count']],
+        top_product_rows=[dict(row,revenue_cents=row['item_sales_cents']) for row in data['products']])
 
 
 @app.errorhandler(404)

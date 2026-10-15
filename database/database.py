@@ -50,6 +50,8 @@ def initialize_database(seed=True):
             migrate_identity(conn)
             from database.inventory_migration import migrate_inventory
             migrate_inventory(conn)
+            from database.analytics_migration import migrate_analytics
+            migrate_analytics(conn)
 
 
 def _initialize_schema(conn, seed):
