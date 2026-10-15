@@ -7,11 +7,21 @@ DB_FILE = os.environ.get("TCCP_DB_PATH") or os.path.join(
     "tccp.db",
 )
 
+class InventoryConnection(sqlite3.Connection):
+    """A connection carries audit metadata only for its own transaction."""
+
+
 def get_db_connection():
     """Establishes a connection to the SQLite database with row factory enabled."""
-    conn = sqlite3.connect(DB_FILE)
+    conn = sqlite3.connect(DB_FILE, factory=InventoryConnection)
     from database.tenancy import current_store_id
     conn.create_function("authorized_store_id", 0, current_store_id)
+    from flask import g, has_request_context
+    conn.audit_context = {}
+    conn.create_function("audit_actor_id", 0, lambda: g.user['id'] if has_request_context() and getattr(g, 'user', None) else None)
+    conn.create_function("audit_type", 0, lambda: conn.audit_context.get('type', 'correction'))
+    conn.create_function("audit_reason", 0, lambda: conn.audit_context.get('reason', 'Stock correction by local client or maintenance'))
+    conn.create_function("audit_transaction_id", 0, lambda: conn.audit_context.get('transaction_id'))
     conn.row_factory = sqlite3.Row  # Allows accessing columns by name like dictionary keys
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
@@ -38,6 +48,8 @@ def initialize_database(seed=True):
             _initialize_schema(conn, seed)
             from database.migrations import migrate_identity
             migrate_identity(conn)
+            from database.inventory_migration import migrate_inventory
+            migrate_inventory(conn)
 
 
 def _initialize_schema(conn, seed):

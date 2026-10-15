@@ -55,7 +55,7 @@
 
                         {% if product.quantity <= 0 %}
                             <span class="stock-pill stock-out">Out of stock</span>
-                        {% elif product.quantity <= 5 %}
+                        {% elif stock_status(product) == 'low' %}
                             <span class="stock-pill stock-low">
                                 {{ product.quantity }} left
                             </span>

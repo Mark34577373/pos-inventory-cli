@@ -3361,3 +3361,20 @@ input:focus-visible {
     .topbar { flex-wrap: wrap; gap: 12px; }
 }
 @media print { .account-actions { display: none; } }
+
+/* Day 15 inventory tools use existing surfaces and controls. */
+.inventory-links { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.inventory-links form { margin: 0; }
+.inventory-filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 16px; margin: 20px 0; align-items: end; }
+.inventory-filters .form-field { margin: 0; }
+.inventory-filters input, .inventory-filters select, .inventory-inline-form input, .product-form select, .product-form textarea { width: 100%; font: inherit; padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 8px; background: white; color: #172033; }
+select:focus-visible, textarea:focus-visible { outline: 3px solid #3978e8; outline-offset: 2px; }
+.inventory-inline-form { display: flex; gap: 12px; align-items: end; flex-wrap: wrap; }
+.inventory-inline-form .form-field { flex: 1; min-width: 160px; margin: 0; }
+.category-row { display: flex; align-items: end; gap: 16px; padding: 18px 0; border-bottom: 1px solid #e7ecf3; flex-wrap: wrap; }
+.category-row .inventory-inline-form { flex: 1; }
+.category-badge { display: inline-block; padding: 4px 8px; border-radius: 6px; background: #eff6ff; color: #1e40af; overflow-wrap: anywhere; }
+.inventory-pagination { display: flex; justify-content: space-between; gap: 14px; flex-wrap: wrap; align-items: center; margin-top: 20px; }
+.stock-alerts { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px,1fr)); gap: 18px; margin-bottom: 24px; }
+.stock-alerts li { margin: 12px 0; overflow-wrap: anywhere; }
+@media (max-width: 600px) { .inventory-filters { grid-template-columns: 1fr; } .inventory-links { gap: 8px; } }

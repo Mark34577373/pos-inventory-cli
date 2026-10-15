@@ -22,6 +22,8 @@ from auth_routes import bp as auth_blueprint
 from config import TAX_RATE, business_now
 from database.database import get_store_connection as get_db_connection
 from database.database import initialize_database
+from inventory_routes import bp as inventory_blueprint
+from inventory_routes import pagination_links
 from services.auth import load_identity
 from services.inventory import (
     create_product,
@@ -32,11 +34,19 @@ from services.inventory import (
     set_product_quantity,
     update_product_record,
 )
+from services.inventory_management import (
+    UNSET,
+    inventory_filters,
+    list_categories,
+    query_inventory,
+    stock_status,
+)
 from services.money import calculate_tax_cents, from_cents, parse_cash
 from services.transaction_service import complete_transaction
 
 app = Flask(__name__)
 app.register_blueprint(auth_blueprint)
+app.register_blueprint(inventory_blueprint)
 
 app.secret_key = os.environ.get("TCCP_SECRET_KEY") or secrets.token_hex(32)
 app.config.update(
@@ -57,7 +67,7 @@ if os.environ.get("TCCP_ENV") == "production":
     from pathlib import Path
     try:
         with closing(sqlite3.connect(Path(os.environ["TCCP_DB_PATH"]).resolve().as_uri() + "?mode=ro", uri=True)) as startup_db:
-            if startup_db.execute("SELECT 1 FROM schema_migrations WHERE version=14").fetchone() is None:
+            if startup_db.execute("SELECT 1 FROM schema_migrations WHERE version=15").fetchone() is None:
                 raise RuntimeError("Run the explicit database migration before production startup.")
     except sqlite3.Error:
         raise RuntimeError("Production requires an existing database migrated with manage.py init.") from None
@@ -156,7 +166,7 @@ def get_inventory_summary(products):
         "total_products": len(products),
         "low_stock_count": sum(
             1 for product in products
-            if 0 < product["quantity"] <= 5
+            if stock_status(product) == "low"
         ),
         "out_of_stock_count": sum(
             1 for product in products
@@ -386,25 +396,34 @@ def dashboard():
         today_transaction_count=today_summary["today_transaction_count"],
         recent_transactions=recent_rows,
         sales_chart=sales_chart,
+        low_stock_products=query_inventory(inventory_filters({'status':'low'}))['products'][:10],
+        out_of_stock_products=query_inventory(inventory_filters({'status':'out'}))['products'][:10],
     )
 
 
 @app.route("/inventory")
 def inventory():
-    search_term = request.args.get("q", "").strip()
-    products = (
-        search_active_products(search_term)
-        if search_term
-        else list_active_products()
-    )
-    summary = get_inventory_summary(products)
+    try:
+        filters=inventory_filters(request.args)
+        data=query_inventory(filters)
+    except ValueError as error:
+        return render_template('error.html',message=str(error)),400
+    return render_template('inventory.html',filters=filters,categories=list_categories(),search_term=filters['q'],
+                           pagination=pagination_links('inventory',filters,data),**data)
 
-    return render_template(
-        "inventory.html",
-        products=products,
-        search_term=search_term,
-        **summary,
-    )
+
+@app.context_processor
+def product_form_context():
+    return {'categories':list_categories()} if request.endpoint in ('add_product','edit_product') and getattr(g,'store',None) else {}
+
+
+def product_metadata(edit=False):
+    default=UNSET if edit else None
+    return {'category_id':request.form.get('category_id',default), 'sku':request.form.get('sku',default),
+            'low_stock_threshold':request.form.get('low_stock_threshold',default)}
+
+
+app.jinja_env.globals['stock_status']=stock_status
 
 
 @app.route("/products/new", methods=["GET", "POST"])
@@ -412,9 +431,9 @@ def add_product():
     if request.method == "POST":
         try:
             name, price, quantity = read_product_form()
-            create_product(name, price, quantity)
-        except ValueError as error:
-            flash(str(error), "error")
+            create_product(name, price, quantity, **product_metadata())
+        except (ValueError, sqlite3.IntegrityError) as error:
+            flash(str(error) if isinstance(error,ValueError) else "SKU is unavailable in this store.", "error")
             return render_template(
                 "product_form.html",
                 mode="create",
@@ -444,9 +463,11 @@ def edit_product(product_id):
     if request.method == "POST":
         try:
             name, price, quantity = read_product_form()
-            update_product_record(product_id, name, price, quantity)
-        except ValueError as error:
-            flash(str(error), "error")
+            update_product_record(product_id, name, price, quantity, **product_metadata(edit=True),
+                                  expected_quantity=request.form.get("expected_quantity"),
+                                  reason=request.form.get("reason","Stock corrected during product edit"))
+        except (ValueError, sqlite3.IntegrityError) as error:
+            flash(str(error) if isinstance(error,ValueError) else "SKU is unavailable in this store.", "error")
             return render_template(
                 "product_form.html",
                 mode="edit",
@@ -477,7 +498,8 @@ def update_quantity(product_id):
         quantity = int(request.form.get("quantity", "").strip())
         if not 0 <= quantity <= 1_000_000:
             raise ValueError
-        set_product_quantity(product_id, quantity)
+        set_product_quantity(product_id, quantity, expected_quantity=request.form.get("expected_quantity"),
+                             reason=request.form.get("reason","Quick inventory correction"))
     except ValueError:
         flash("Enter a whole-number quantity between 0 and 1,000,000.", "error")
         return redirect(url_for("inventory"))

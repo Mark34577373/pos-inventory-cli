@@ -125,3 +125,13 @@ Set `TCCP_DB_PATH` explicitly first. No real data is copied into the demo; exist
 Authentication and throttling persist in SQLite across workers and restarts; keep the production secret stable, use HTTPS and a private persistent local disk, and do not log credentials or cookies. Local development uses the same limiter. Passwords use Werkzeug scrypt; new passphrases must contain 15–128 characters. Email validation checks format, not mailbox ownership. There is no email verification, recovery, MFA, staff invitation, or multi-store switcher yet.
 
 See [Day 14 design and security notes](docs/DAY14.md) for the route audit, ownership constraints, migration details, limiter settings, demo behavior, security references, and deployment limitations.
+
+## Day 15 inventory management
+
+Inventory now supports store-private categories, optional unique SKUs, combined search/category/stock/visibility filters, allowlisted sorting and pagination. Use **Categories**, **Adjust / restock**, and **Stock history** from Inventory. Product forms include category, SKU and a configurable low-stock threshold (blank defaults to 5). Dashboard alerts use those same thresholds and link to restocking.
+
+Every quantity change is audited atomically with its operation, including checkout and desktop setters. Existing quantities receive an explicit migration baseline; no earlier stock movements are fabricated. History is append-only and private to its store. Returned-stock adjustments do not issue financial refunds.
+
+Apply migration **15** with `python manage.py init` while writers are stopped, then run `python manage.py check`. The command backs up an existing database. Production requires migration 15 before startup. No working database is migrated automatically by this implementation.
+
+See [Day 15 usage, isolation and recovery notes](docs/DAY15.md) for normalization rules, filters, quantity semantics, history constraints, migration verification, recovery and remaining limitations.

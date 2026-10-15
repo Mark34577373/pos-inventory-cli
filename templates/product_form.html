@@ -78,6 +78,13 @@
                 </div>
             </div>
 
+            {% if product %}<input type="hidden" name="expected_quantity" value="{{ product.quantity }}">{% endif %}
+            <div class="form-grid">
+                <div class="form-field"><label for="product-category">Category</label><select id="product-category" name="category_id"><option value="">Uncategorized</option>{% for category in categories %}<option value="{{ category.id }}" {% if form_values.get('category_id', product.category_id if product else '')|string == category.id|string %}selected{% endif %}>{{ category.name }}</option>{% endfor %}</select></div>
+                <div class="form-field"><label for="product-sku">SKU (optional)</label><input id="product-sku" name="sku" maxlength="64" value="{{ form_values.get('sku', product.sku or '' if product else '') }}"><small class="field-help">Letters, digits, dots, hyphens, underscores; unique within this store.</small></div>
+                <div class="form-field"><label for="product-threshold">Low-stock threshold</label><input id="product-threshold" name="low_stock_threshold" type="number" min="0" max="1000000" step="1" placeholder="Default: 5" value="{{ form_values.get('low_stock_threshold', product.low_stock_threshold if product and product.low_stock_threshold is not none else '') }}"><small class="field-help">Blank uses 5. Zero only warns when out of stock.</small></div>
+            </div>
+            {% if product %}<div class="form-field"><label for="stock-reason">Stock correction reason</label><input id="stock-reason" name="reason" maxlength="500" value="Stock corrected during product edit" required></div>{% endif %}
             <div class="form-note">
                 <span class="note-icon">i</span>
                 <p>Prices are saved to the nearest cent. A quantity of zero marks the product as out of stock.</p>

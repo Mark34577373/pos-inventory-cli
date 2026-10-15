@@ -71,6 +71,7 @@ def seed_demo(allow_existing=False):
                 for product, name, cents in ((ids[0],'Demo Notebook',425),(ids[1],'Demo USB Cable',750)):
                     conn.execute('INSERT INTO transaction_items(transaction_id,product_id,quantity,price,price_cents,product_name,store_id) VALUES (?,?,1,?,?,?,?)',
                                  (tx,product,float(from_cents(cents)),cents,name,store))
+                    conn.audit_context.update(type='checkout', reason='Fictional demonstration checkout', transaction_id=tx)
                     conn.execute('UPDATE products SET quantity=quantity-1 WHERE id=? AND store_id=?',(product,store))
 
 

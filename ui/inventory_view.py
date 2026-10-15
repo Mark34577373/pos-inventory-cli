@@ -31,12 +31,12 @@ def get_inventory_products():
     return list_active_products()
 
 
-def get_stock_display(quantity):
+def get_stock_display(quantity, threshold=LOW_STOCK_THRESHOLD):
     """Return the stock label, color, and font for a quantity."""
     if quantity <= 0:
         return "OUT OF STOCK", RED, ("Arial", 10, "bold")
 
-    if quantity <= LOW_STOCK_THRESHOLD:
+    if quantity <= threshold:
         return (
             f"LOW STOCK · {quantity} left",
             AMBER,
@@ -185,7 +185,7 @@ def create_inventory_view(parent_frame):
                 sum(
                     1
                     for product in all_products
-                    if 0 < product["quantity"] <= LOW_STOCK_THRESHOLD
+                    if 0 < product["quantity"] <= (product["low_stock_threshold"] if product["low_stock_threshold"] is not None else LOW_STOCK_THRESHOLD)
                 )
             )
         )
@@ -238,7 +238,8 @@ def create_inventory_view(parent_frame):
             row, col = divmod(index, column_count)
 
             stock_text, stock_color, stock_font = get_stock_display(
-                product["quantity"]
+                product["quantity"],
+                product["low_stock_threshold"] if product["low_stock_threshold"] is not None else LOW_STOCK_THRESHOLD,
             )
 
             card = tk.Frame(

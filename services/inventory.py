@@ -3,6 +3,7 @@ from decimal import Decimal, InvalidOperation
 
 from database.database import get_store_connection as get_db_connection
 from database.tenancy import require_store_write
+from services.inventory_management import UNSET, clean_metadata, whole_number
 from services.money import from_cents, to_cents
 
 
@@ -116,7 +117,7 @@ def get_quantity(prompt):
     return quantity
 
 
-def create_product(name, price, quantity):
+def create_product(name, price, quantity, *, category_id=None, sku=None, low_stock_threshold=None):
     """Validate and persist one product, returning its new database ID."""
     require_store_write()
     if not isinstance(name, str) or not 1 <= len(name.strip()) <= 100:
@@ -140,15 +141,16 @@ def create_product(name, price, quantity):
 
     with closing(get_db_connection()) as conn:
         with conn:
+            category_id, sku, low_stock_threshold = clean_metadata(conn, category_id, sku, low_stock_threshold)
             cursor = conn.execute(
                 "INSERT INTO products "
-                "(name, price, price_cents, quantity, store_id) "
-                "VALUES (?, ?, ?, ?, authorized_store_id())",
+                "(name, price, price_cents, quantity, store_id, category_id, sku, low_stock_threshold) "
+                "VALUES (?, ?, ?, ?, authorized_store_id(), ?, ?, ?)",
                 (
                     name.strip(),
                     price_cents / 100,
                     price_cents,
-                    quantity,
+                    quantity, category_id, sku, low_stock_threshold,
                 ),
             )
 
@@ -191,32 +193,12 @@ def update_product_details(product_id, name, price):
                 )
 
 
-def set_product_quantity(product_id, quantity):
-    """Set a product's stock quantity and return its ID."""
-    require_store_write()
+def set_product_quantity(product_id, quantity, *, reason="Stock quantity corrected", expected_quantity=None):
+    """Compatibility setter; record corrections atomically in the audit trail."""
+    from services.inventory_management import adjust_stock
     if isinstance(quantity, bool) or not isinstance(quantity, int):
         raise ValueError("Quantity must be a whole number.")
-
-    if not 0 <= quantity <= 1_000_000:
-        raise ValueError("Quantity cannot be negative.")
-
-    with closing(get_db_connection()) as conn:
-        with conn:
-            cursor = conn.execute(
-                "UPDATE products "
-                "SET quantity = ? "
-                "WHERE store_id = authorized_store_id() AND id = ? AND is_active = 1",
-                (
-                    quantity,
-                    product_id,
-                ),
-            )
-
-            if cursor.rowcount != 1:
-                raise ValueError(
-                    "Product no longer exists in inventory."
-                )
-
+    adjust_stock(product_id, quantity, 'correction', reason, expected_quantity=expected_quantity)
     return product_id
 
 
@@ -479,8 +461,8 @@ def search_product():
     print(f"No product matching '{search_term}' was found.")
 
 
-def update_product_record(product_id, name, price, quantity):
-    """Save an entire edit atomically, including legacy mirror values."""
+def update_product_record(product_id, name, price, quantity, *, category_id=UNSET, sku=UNSET, low_stock_threshold=UNSET, expected_quantity=None, reason="Stock corrected during product edit"):
+    """Save metadata and stock in one transaction; stale web edits are rejected."""
     require_store_write()
     cents = to_cents(price)
     if not isinstance(name, str) or not 1 <= len(name.strip()) <= 100:
@@ -489,9 +471,20 @@ def update_product_record(product_id, name, price, quantity):
         raise ValueError("Price must be between $0.01 and $1,000,000.00.")
     if isinstance(quantity, bool) or not isinstance(quantity, int) or not 0 <= quantity <= 1_000_000:
         raise ValueError("Quantity must be a whole number between 0 and 1,000,000.")
+    if not isinstance(reason, str) or not 1 <= len(reason.strip()) <= 500:
+        raise ValueError("Stock change reason must contain 1–500 characters.")
     with closing(get_db_connection()) as conn:
         with conn:
-            result = conn.execute("UPDATE products SET name=?, price=?, price_cents=?, quantity=? WHERE store_id=authorized_store_id() AND id=? AND is_active=1",
-                                  (name.strip(), float(from_cents(cents)), cents, quantity, product_id))
-            if result.rowcount != 1:
+            conn.execute('BEGIN IMMEDIATE')
+            product = conn.execute('SELECT * FROM products WHERE id=? AND store_id=authorized_store_id() AND is_active=1', (product_id,)).fetchone()
+            if product is None:
                 raise ValueError("Product no longer exists in inventory.")
+            if expected_quantity is not None and product['quantity']!=whole_number(expected_quantity):
+                raise ValueError('Stock changed. Reload the product form before saving.')
+            category_id, sku, low_stock_threshold = clean_metadata(conn,
+                product['category_id'] if category_id is UNSET else category_id,
+                product['sku'] if sku is UNSET else sku,
+                product['low_stock_threshold'] if low_stock_threshold is UNSET else low_stock_threshold)
+            conn.audit_context.update(type='correction', reason=reason.strip())
+            conn.execute("UPDATE products SET name=?,price=?,price_cents=?,quantity=?,category_id=?,sku=?,low_stock_threshold=? WHERE store_id=authorized_store_id() AND id=? AND is_active=1",
+                (name.strip(),float(from_cents(cents)),cents,quantity,category_id,sku,low_stock_threshold,product_id))

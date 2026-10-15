@@ -56,16 +56,6 @@ def complete_transaction(cart_items, total_amount, payment_method, *, checkout_t
                         f"Only {product['quantity']} units of {product['name']} are available."
                     )
 
-                cursor.execute(
-                    "UPDATE products SET quantity = quantity - ? "
-                    "WHERE store_id=authorized_store_id() AND id = ? AND quantity >= ? AND is_active = 1",
-                    (quantity, product_id, quantity),
-                )
-                if cursor.rowcount != 1:
-                    raise ValueError(
-                        f"Stock changed while processing {product['name']}. Please retry."
-                    )
-
                 price_cents = product["price_cents"]
                 subtotal_cents += price_cents * quantity
                 transaction_items.append(
@@ -90,7 +80,13 @@ def complete_transaction(cart_items, total_amount, payment_method, *, checkout_t
             )
             transaction_id = cursor.lastrowid
 
+            conn.audit_context.update(type='checkout', reason='Simulated checkout', transaction_id=transaction_id)
             for product_id, quantity, price_cents, product_name in transaction_items:
+                cursor.execute(
+                    "UPDATE products SET quantity=quantity-? WHERE store_id=authorized_store_id() AND id=? AND quantity>=? AND is_active=1",
+                    (quantity, product_id, quantity))
+                if cursor.rowcount != 1:
+                    raise ValueError("Stock changed while processing checkout. Please retry.")
                 cursor.execute(
                     "INSERT INTO transaction_items "
                     "(transaction_id, product_id, quantity, price, price_cents, product_name, store_id) "

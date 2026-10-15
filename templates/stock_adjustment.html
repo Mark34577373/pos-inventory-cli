@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Adjust stock | TCCP{% endblock %}
+{% block page_heading %}Adjust stock{% endblock %}
+{% block content %}
+<section class="form-page"><a class="back-link" href="{{ url_for('inventory') }}">← Inventory</a><div class="form-panel"><h2>{{ product.name }}</h2><p>Current stock: <strong>{{ product.quantity }} units</strong></p><p class="muted">Every quantity change is recorded in stock history.</p>
+{% if error %}<p class="flash-message flash-error" role="alert">{{ error }}</p>{% endif %}
+<form method="post" class="product-form"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="expected_quantity" value="{{ product.quantity }}">
+<div class="form-field"><label for="adjust-type">Adjustment type</label><select id="adjust-type" name="type"><option value="restock">Restock — add units</option><option value="correction">Correction — set exact stock</option><option value="damaged">Damaged — remove units</option><option value="return">Returned stock — add units</option></select></div>
+<div class="form-field"><label for="adjust-amount">Quantity</label><input id="adjust-amount" name="amount" type="number" min="0" max="1000000" step="1" required><small class="field-help">Restock, damage, and returns use a positive number of units. Corrections set the new total.</small></div>
+<div class="form-field"><label for="adjust-reason">Reason</label><textarea id="adjust-reason" name="reason" rows="3" maxlength="500" required></textarea><small class="field-help">Returned stock does not issue a refund or reverse a transaction.</small></div><button class="primary-button" type="submit">Record adjustment</button></form></div></section>
+{% endblock %}
