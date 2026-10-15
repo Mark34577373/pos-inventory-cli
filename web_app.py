@@ -1,16 +1,16 @@
-from config import business_now
-
-import sqlite3
+import hmac
 import os
 import secrets
-import hmac
-from flask import abort
+import sqlite3
 from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
 
 from flask import (
     Flask,
+    abort,
     flash,
+    g,
+    jsonify,
     redirect,
     render_template,
     request,
@@ -18,8 +18,11 @@ from flask import (
     url_for,
 )
 
-from config import TAX_RATE
-from database.database import get_db_connection, initialize_database
+from auth_routes import bp as auth_blueprint
+from config import TAX_RATE, business_now
+from database.database import get_store_connection as get_db_connection
+from database.database import initialize_database
+from services.auth import load_identity
 from services.inventory import (
     create_product,
     deactivate_product,
@@ -33,6 +36,7 @@ from services.money import calculate_tax_cents, from_cents, parse_cash
 from services.transaction_service import complete_transaction
 
 app = Flask(__name__)
+app.register_blueprint(auth_blueprint)
 
 app.secret_key = os.environ.get("TCCP_SECRET_KEY") or secrets.token_hex(32)
 app.config.update(
@@ -40,10 +44,24 @@ app.config.update(
     SESSION_COOKIE_SAMESITE="Lax",
     SESSION_COOKIE_SECURE=os.environ.get("TCCP_ENV") == "production",
     MAX_CONTENT_LENGTH=64 * 1024,
+    PERMANENT_SESSION_LIFETIME=timedelta(hours=8),
+    SESSION_REFRESH_EACH_REQUEST=False,
     DEMO_READ_ONLY=os.environ.get("TCCP_READ_ONLY", "1" if os.environ.get("TCCP_ENV") == "production" else "0") == "1",
 )
 if os.environ.get("TCCP_ENV") == "production" and len(os.environ.get("TCCP_SECRET_KEY", "")) < 32:
     raise RuntimeError("Production requires TCCP_SECRET_KEY of at least 32 characters.")
+if os.environ.get("TCCP_ENV") == "production" and not os.path.isabs(os.environ.get("TCCP_DB_PATH", "")):
+    raise RuntimeError("Production requires an absolute persistent TCCP_DB_PATH.")
+if os.environ.get("TCCP_ENV") == "production":
+    from contextlib import closing
+    from pathlib import Path
+    try:
+        with closing(sqlite3.connect(Path(os.environ["TCCP_DB_PATH"]).resolve().as_uri() + "?mode=ro", uri=True)) as startup_db:
+            if startup_db.execute("SELECT 1 FROM schema_migrations WHERE version=14").fetchone() is None:
+                raise RuntimeError("Run the explicit database migration before production startup.")
+    except sqlite3.Error:
+        raise RuntimeError("Production requires an existing database migrated with manage.py init.") from None
+
 
 
 def csrf_token():
@@ -57,8 +75,43 @@ app.jinja_env.globals["csrf_token"] = csrf_token
 
 @app.before_request
 def protect_writes():
+    g.user = None
+    g.store = None
+    g.is_demo = False
+    public = {'static', 'auth.login', 'auth.register', 'auth.demo', 'auth.logout'}
+    if request.endpoint == 'static':
+        return None
+    identity = load_identity(session.get('login_token'))
+    if identity:
+        g.user = {'id': identity['user_id'], 'email': identity['email']}
+        g.store = {'id': identity['id'], 'name': identity['name'], 'kind': identity['kind']}
+    elif session.get('login_token'):
+        session.clear()
+    elif session.get('demo_mode'):
+        from contextlib import closing
+
+        from database.database import get_db_connection as raw_connection
+        with closing(raw_connection()) as conn:
+            store = conn.execute("SELECT id,name,kind FROM stores WHERE kind='demo'").fetchone()
+        if store:
+            g.store = dict(store)
+            g.is_demo = True
+    if request.method == 'POST' and request.endpoint not in public and app.config['DEMO_READ_ONLY']:
+        abort(403, description='This deployment is read-only.')
+    if request.endpoint not in public and request.endpoint is not None and g.store is None:
+        if request.path.startswith('/api/'):
+            return jsonify(error='Authentication required'), 401
+        return redirect(url_for('auth.login', next=request.path if request.method == 'GET' else '/'))
+    if g.is_demo and request.endpoint == 'auth.account':
+        return redirect(url_for('auth.login'))
+    if g.store:
+        context = f"{g.user['id'] if g.user else 'demo'}:{g.store['id']}"
+        if session.get('cart_context') != context:
+            for key in ('sale_cart', 'checkout_token', 'last_receipt_id', 'last_receipt'):
+                session.pop(key, None)
+            session['cart_context'] = context
     if request.method == "POST":
-        if app.config["DEMO_READ_ONLY"]:
+        if g.is_demo and request.endpoint not in public:
             abort(403, description="This public demo is read-only.")
         expected = session.get("csrf_token", "")
         submitted = request.form.get("csrf_token", "")
@@ -68,7 +121,7 @@ def protect_writes():
 
 @app.errorhandler(sqlite3.Error)
 def database_error(error):
-    app.logger.error("Database operation failed", exc_info=error)
+    app.logger.error("Database operation failed (%s)", type(error).__name__)
     return render_template("error.html", message="The database is unavailable. Please retry shortly."), 503
 
 
@@ -89,7 +142,11 @@ def security_headers(response):
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "same-origin"
-    response.headers["Cache-Control"] = "no-store"
+    response.headers["Cache-Control"] = "no-store, private"
+    response.headers['Content-Security-Policy'] = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"
+    if os.environ.get('TCCP_ENV') == 'production':
+        response.headers['Strict-Transport-Security'] = 'max-age=31536000'
+
     return response
 
 
@@ -238,7 +295,7 @@ def get_transactions_for_period(start_date, end_date):
                 total_cents,
                 payment_method
             FROM transactions
-            WHERE date(timestamp) >= ?
+            WHERE store_id=authorized_store_id() AND date(timestamp) >= ?
               AND date(timestamp) <= ?
             ORDER BY timestamp DESC, id DESC
             """,
@@ -265,7 +322,7 @@ def dashboard():
                 COALESCE(SUM(total_cents), 0) AS today_sales_cents,
                 COUNT(*) AS today_transaction_count
             FROM transactions
-            WHERE date(timestamp) = ?
+            WHERE store_id=authorized_store_id() AND date(timestamp) = ?
             """,
             (today.isoformat(),),
         ).fetchone()
@@ -274,6 +331,7 @@ def dashboard():
             """
             SELECT id, timestamp, total_cents, payment_method
             FROM transactions
+            WHERE store_id=authorized_store_id()
             ORDER BY timestamp DESC, id DESC
             LIMIT 5
             """
@@ -286,7 +344,7 @@ def dashboard():
                 COUNT(*) AS transaction_count,
                 COALESCE(SUM(total_cents), 0) AS sales_cents
             FROM transactions
-            WHERE date(timestamp) >= ?
+            WHERE store_id=authorized_store_id() AND date(timestamp) >= ?
               AND date(timestamp) <= ?
             GROUP BY date(timestamp)
             ORDER BY sale_date ASC
@@ -602,7 +660,6 @@ def sale_checkout():
 
     total_cents = sale_data["total_cents"]
     cash_received_cents = None
-    change_cents = None
 
     if payment_method == "Cash":
         try:
@@ -621,7 +678,6 @@ def sale_checkout():
             )
             return redirect(url_for("sale"))
 
-        change_cents = cash_received_cents - total_cents
 
     items_to_log = [
         {
@@ -665,12 +721,12 @@ def receipt():
         return redirect(url_for("sale"))
     conn = get_db_connection()
     try:
-        row = conn.execute("SELECT * FROM transactions WHERE id=?", (transaction_id,)).fetchone()
+        row = conn.execute("SELECT * FROM transactions WHERE store_id=authorized_store_id() AND id=?", (transaction_id,)).fetchone()
         if row is None:
             return redirect(url_for("sale"))
         receipt_data = dict(row)
         receipt_data["items"] = [dict(item) for item in conn.execute(
-            "SELECT product_name AS name, quantity, price_cents AS unit_price_cents, quantity*price_cents AS line_total_cents FROM transaction_items WHERE transaction_id=? ORDER BY id", (transaction_id,))]
+            "SELECT product_name AS name, quantity, price_cents AS unit_price_cents, quantity*price_cents AS line_total_cents FROM transaction_items WHERE store_id=authorized_store_id() AND transaction_id=? ORDER BY id", (transaction_id,))]
     finally:
         conn.close()
     receipt_data["transaction_id"] = row["id"]
@@ -708,7 +764,7 @@ def transactions():
         start_date = None
         end_date = None
 
-    conditions = []
+    conditions = ["store_id=authorized_store_id()"]
     params = []
 
     if search_text:
@@ -741,7 +797,7 @@ def transactions():
                 COUNT(*) AS transaction_count,
                 COALESCE(SUM(total_cents), 0) AS total_cents
             FROM transactions
-            WHERE {where_clause}
+            WHERE store_id=authorized_store_id() AND {where_clause}
             """,
             params,
         ).fetchone()
@@ -750,7 +806,7 @@ def transactions():
             f"""
             SELECT id, timestamp, total_cents, payment_method
             FROM transactions
-            WHERE {where_clause}
+            WHERE store_id=authorized_store_id() AND {where_clause}
             ORDER BY timestamp DESC, id DESC
             LIMIT 200
             """,
@@ -781,7 +837,7 @@ def transaction_detail(transaction_id):
             """
             SELECT id, timestamp, total_cents, payment_method
             FROM transactions
-            WHERE id = ?
+            WHERE store_id=authorized_store_id() AND id = ?
             """,
             (transaction_id,),
         ).fetchone()
@@ -797,7 +853,7 @@ def transaction_detail(transaction_id):
                     price_cents,
                     quantity * price_cents AS line_total_cents
                 FROM transaction_items
-                WHERE transaction_id = ?
+                WHERE store_id=authorized_store_id() AND transaction_id = ?
                 ORDER BY rowid
                 """,
                 (transaction_id,),
@@ -863,7 +919,7 @@ def reports():
                 COALESCE(SUM(total_cents), 0) AS revenue_cents,
                 COALESCE(AVG(total_cents), 0) AS average_sale_cents
             FROM transactions
-            WHERE date(timestamp) >= ?
+            WHERE store_id=authorized_store_id() AND date(timestamp) >= ?
               AND date(timestamp) <= ?
             """,
             (start_value, end_value),
@@ -876,7 +932,7 @@ def reports():
                 COUNT(*) AS transaction_count,
                 COALESCE(SUM(total_cents), 0) AS revenue_cents
             FROM transactions
-            WHERE date(timestamp) >= ?
+            WHERE store_id=authorized_store_id() AND date(timestamp) >= ?
               AND date(timestamp) <= ?
             GROUP BY payment_method
             ORDER BY revenue_cents DESC
@@ -891,7 +947,7 @@ def reports():
                 COUNT(*) AS transaction_count,
                 COALESCE(SUM(total_cents), 0) AS revenue_cents
             FROM transactions
-            WHERE date(timestamp) >= ?
+            WHERE store_id=authorized_store_id() AND date(timestamp) >= ?
               AND date(timestamp) <= ?
             GROUP BY date(timestamp)
             ORDER BY sale_date DESC
@@ -908,7 +964,7 @@ def reports():
             FROM transaction_items AS ti
             JOIN transactions AS t
               ON t.id = ti.transaction_id
-            WHERE date(t.timestamp) >= ?
+            WHERE t.store_id=authorized_store_id() AND ti.store_id=authorized_store_id() AND date(t.timestamp) >= ?
               AND date(t.timestamp) <= ?
             GROUP BY ti.product_id, ti.product_name
             ORDER BY units_sold DESC, revenue_cents DESC
@@ -936,5 +992,6 @@ def page_not_found(error):
 
 
 if __name__ == "__main__":
-    initialize_database()
-    app.run(host="127.0.0.1", port=5000, debug=os.environ.get("TCCP_DEBUG") == "1")
+    if os.environ.get("TCCP_ENV") != "production":
+        initialize_database()
+    app.run(host="127.0.0.1", port=5000, debug=os.environ.get("TCCP_DEBUG") == "1" and os.environ.get("TCCP_ENV") != "production")

@@ -1,10 +1,11 @@
 # ui/app.py
 import tkinter as tk
+
 from database.database import initialize_database
 from ui.dashboard import create_dashboard_view
 from ui.inventory_view import create_inventory_view
-from ui.sale_view import create_sale_view
 from ui.reports_view import create_reports_view
+from ui.sale_view import create_sale_view
 
 
 class TCCPApplication:

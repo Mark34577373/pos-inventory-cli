@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Create account' if mode == 'register' else 'Sign in' }} | TCCP{% endblock %}
+{% block page_heading %}{{ 'Create your store' if mode == 'register' else 'Welcome back' }}{% endblock %}
+{% block content %}
+<section class="form-page auth-page">
+<div class="form-panel">
+    <div class="form-panel-heading"><p class="eyebrow">YOUR TCCP WORKSPACE</p>
+    <h2>{{ 'Create an account' if mode == 'register' else 'Sign in' }}</h2>
+    <p class="muted">{{ 'Start with a private, empty store. Existing store data is never claimed automatically.' if mode == 'register' else 'Open your store to manage inventory and simulated sales.' }}</p></div>
+    {% if error %}<p class="flash-message flash-error" role="alert">{{ error }}</p>{% endif %}
+    <form method="post" class="product-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="next" value="{{ request.args.get('next', '') }}">
+        <div class="form-field"><label for="email">Email address</label>
+            <input id="email" name="email" type="email" autocomplete="username" maxlength="254" required value="{{ request.form.get('email', '') }}"></div>
+        {% if mode == 'register' %}
+        <div class="form-field"><label for="store-name">Store name <span class="muted">(optional)</span></label>
+            <input id="store-name" name="store_name" maxlength="100" autocomplete="organization" value="{{ request.form.get('store_name', '') }}"></div>
+        {% endif %}
+        <div class="form-field"><label for="password">Password</label>
+            <input id="password" name="password" type="password" autocomplete="{{ 'new-password' if mode == 'register' else 'current-password' }}" {% if mode == 'register' %}minlength="15" aria-describedby="password-help"{% endif %} maxlength="128" required>
+            {% if mode == 'register' %}<small id="password-help" class="field-help">Use 15–128 characters. Spaces and passphrases are welcome.</small>{% endif %}</div>
+        {% if mode == 'register' %}
+        <div class="form-field"><label for="password-confirm">Confirm password</label>
+            <input id="password-confirm" name="password_confirm" type="password" autocomplete="new-password" minlength="15" maxlength="128" required></div>
+        {% endif %}
+        <button class="primary-button" type="submit">{{ 'Create account' if mode == 'register' else 'Sign in' }}</button>
+    </form>
+    <p class="auth-link">{% if mode == 'register' %}Already have an account? <a class="text-link" href="{{ url_for('auth.login') }}">Sign in</a>{% else %}New to TCCP? <a class="text-link" href="{{ url_for('auth.register') }}">Create an account</a>{% endif %}</p>
+    <form action="{{ url_for('auth.demo') }}" method="post"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="secondary-button" type="submit">Explore the read-only demo</button></form>
+</div>
+</section>
+{% endblock %}

@@ -1,13 +1,14 @@
-from config import business_now
 # services/transaction_service.py
-from datetime import datetime
 
-from config import TAX_RATE
-from database.database import get_db_connection
+from config import TAX_RATE, business_now
+from database.database import get_store_connection as get_db_connection
+from database.tenancy import require_store_write
 from services.money import calculate_tax_cents, from_cents, to_cents
+
 
 def complete_transaction(cart_items, total_amount, payment_method, *, checkout_token=None, cash_received_cents=None):
     """Validate and persist a complete sale atomically using integer cents."""
+    require_store_write()
     payment_method = (
         payment_method.strip().title()
         if isinstance(payment_method, str)
@@ -26,7 +27,7 @@ def complete_transaction(cart_items, total_amount, payment_method, *, checkout_t
             conn.execute("BEGIN IMMEDIATE")
             cursor = conn.cursor()
             if checkout_token:
-                prior = cursor.execute("SELECT id FROM transactions WHERE checkout_token=?", (checkout_token,)).fetchone()
+                prior = cursor.execute("SELECT id FROM transactions WHERE store_id=authorized_store_id() AND checkout_token=?", (checkout_token,)).fetchone()
                 if prior:
                     return prior["id"]
             subtotal_cents = 0
@@ -45,7 +46,7 @@ def complete_transaction(cart_items, total_amount, payment_method, *, checkout_t
 
                 product = cursor.execute(
                     "SELECT name, quantity, price_cents FROM products "
-                    "WHERE id = ? AND is_active = 1",
+                    "WHERE store_id=authorized_store_id() AND id = ? AND is_active = 1",
                     (product_id,),
                 ).fetchone()
                 if product is None:
@@ -57,7 +58,7 @@ def complete_transaction(cart_items, total_amount, payment_method, *, checkout_t
 
                 cursor.execute(
                     "UPDATE products SET quantity = quantity - ? "
-                    "WHERE id = ? AND quantity >= ? AND is_active = 1",
+                    "WHERE store_id=authorized_store_id() AND id = ? AND quantity >= ? AND is_active = 1",
                     (quantity, product_id, quantity),
                 )
                 if cursor.rowcount != 1:
@@ -83,8 +84,8 @@ def complete_transaction(cart_items, total_amount, payment_method, *, checkout_t
             timestamp = business_now().strftime("%Y-%m-%d %H:%M:%S")
             cursor.execute(
                 "INSERT INTO transactions "
-                "(timestamp, total, total_cents, payment_method, checkout_token, cash_received_cents, tax_rate_percent) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                "(timestamp, total, total_cents, payment_method, checkout_token, cash_received_cents, tax_rate_percent, store_id) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, authorized_store_id())",
                 (timestamp, float(from_cents(total_cents)), total_cents, payment_method, checkout_token, cash_received_cents, str(TAX_RATE * 100)),
             )
             transaction_id = cursor.lastrowid
@@ -92,8 +93,8 @@ def complete_transaction(cart_items, total_amount, payment_method, *, checkout_t
             for product_id, quantity, price_cents, product_name in transaction_items:
                 cursor.execute(
                     "INSERT INTO transaction_items "
-                    "(transaction_id, product_id, quantity, price, price_cents, product_name) "
-                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    "(transaction_id, product_id, quantity, price, price_cents, product_name, store_id) "
+                    "VALUES (?, ?, ?, ?, ?, ?, authorized_store_id())",
                     (
                         transaction_id,
                         product_id,
@@ -117,7 +118,7 @@ def view_sales_report():
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
-        cursor.execute("SELECT * FROM transactions ORDER BY id DESC")
+        cursor.execute("SELECT * FROM transactions WHERE store_id=authorized_store_id() ORDER BY id DESC")
         transactions = cursor.fetchall()
 
         today_transactions = [
@@ -167,7 +168,7 @@ def view_sales_report():
             cursor.execute("""
                 SELECT ti.quantity, ti.price_cents, ti.product_name AS name
                 FROM transaction_items ti
-                WHERE ti.transaction_id = ?
+                WHERE ti.store_id=authorized_store_id() AND ti.transaction_id = ?
             """, (tx["id"],))
             items = cursor.fetchall()
 

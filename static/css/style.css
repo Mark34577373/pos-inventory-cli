@@ -3346,3 +3346,18 @@ input:focus-visible {
     .app-shell > .sidebar { display: none; }
     .app-shell > .main-area { display: block; margin: 0; width: 100%; }
 }
+
+/* Day 14 account pages reuse the existing form and navigation system. */
+.auth-page { max-width: 620px; margin: 24px auto; }
+.auth-page .form-panel { width: 100%; }
+.auth-page .form-field { margin-bottom: 18px; }
+.auth-link { margin: 24px 0 16px; }
+.account-actions { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.account-actions form { margin: 0; }
+.user-chip { min-width: 0; }
+.user-chip strong, .user-chip small { overflow-wrap: anywhere; }
+@media (max-width: 760px) {
+    .auth-page { margin: 0; }
+    .topbar { flex-wrap: wrap; gap: 12px; }
+}
+@media print { .account-actions { display: none; } }

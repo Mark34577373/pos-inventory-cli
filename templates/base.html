@@ -85,9 +85,15 @@
                 <div class="user-chip">
                     <span class="user-avatar">T</span>
                     <span>
-                        <strong>Store Admin</strong>
-                        <small>Local workspace</small>
+                        <strong>{{ g.store.name if g.store else 'TCCP' }}</strong>
+                        <small>{{ 'Read-only demonstration' if g.is_demo else (g.user.email if g.user else 'Sign in to your store') }}</small>
                     </span>
+                </div>
+                <div class="account-actions">
+                {% if g.user %}<a class="text-link" href="{{ url_for('auth.account') }}">Account</a>{% endif %}
+                {% if g.user or g.is_demo %}
+                    <form method="post" action="{{ url_for('auth.logout') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="small-button" type="submit">{{ 'Exit demo' if g.is_demo else 'Sign out' }}</button></form>
+                {% else %}<a class="text-link" href="{{ url_for('auth.login') }}">Sign in</a>{% endif %}
                 </div>
             </header>
 
@@ -104,7 +110,7 @@
                     {% endif %}
                 {% endwith %}
 
-                <p class="demo-banner">Fictional demonstration data · All payments are simulated{% if config.DEMO_READ_ONLY %} · Read-only public demo{% endif %}</p>
+                <p class="demo-banner">All payments are simulated{% if g.is_demo %} · Fictional data · Read-only public demo{% elif config.DEMO_READ_ONLY %} · Read-only deployment{% endif %}</p>
                 {% block content %}{% endblock %}
             </div>
 

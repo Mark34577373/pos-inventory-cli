@@ -1,10 +1,12 @@
 
 import tkinter as tk
+
 from ui.app import TCCPApplication
+
 
 def main():
     root = tk.Tk()
-    app = TCCPApplication(root)
+    _app = TCCPApplication(root)
     root.mainloop()
 
 if __name__ == "__main__":

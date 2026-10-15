@@ -1,9 +1,9 @@
-from config import business_now
 # ui/dashboard.py
 import tkinter as tk
-from database.database import get_db_connection
-from ui.reports_view import get_today_sales_summary
+
+from database.database import get_store_connection as get_db_connection
 from services.money import format_cents
+from ui.reports_view import get_today_sales_summary
 
 
 def get_dashboard_data():
@@ -12,7 +12,7 @@ def get_dashboard_data():
     conn = get_db_connection()
     try:
         product_count = conn.execute(
-            "SELECT COUNT(*) FROM products WHERE is_active = 1"
+            "SELECT COUNT(*) FROM products WHERE store_id=authorized_store_id() AND is_active = 1"
         ).fetchone()[0]
         recent_transactions = conn.execute(
             """
@@ -25,11 +25,12 @@ def get_dashboard_data():
                     FROM (
                         SELECT ti.product_name || ' x' || ti.quantity AS item_description
                         FROM transaction_items ti
-                        WHERE ti.transaction_id = t.id
+                        WHERE ti.store_id=authorized_store_id() AND ti.transaction_id = t.id
                         ORDER BY ti.id
                     )
                 ), 'No item details') AS items
             FROM transactions t
+            WHERE t.store_id=authorized_store_id()
             ORDER BY t.id DESC
             LIMIT 5
             """

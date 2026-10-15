@@ -1,14 +1,11 @@
-from config import business_now
 # services/checkout.py
 import sqlite3
 
-from config import TAX_RATE
-from services.money import from_cents, calculate_tax_cents, parse_cash
+from config import TAX_RATE, business_now
 from models.cart import Cart
 from services.inventory import find_product_by_id, find_products_by_ids
+from services.money import calculate_tax_cents, from_cents, parse_cash
 from services.transaction_service import complete_transaction
-from datetime import datetime 
-
 
 session_cart = Cart()
 

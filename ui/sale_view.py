@@ -1,11 +1,8 @@
-from config import business_now
-
-from datetime import datetime
 import sqlite3
 import tkinter as tk
 from tkinter import messagebox, simpledialog
 
-from config import TAX_RATE
+from config import TAX_RATE, business_now
 from services.checkout import session_cart
 from services.inventory import (
     find_product_by_id,
@@ -13,10 +10,9 @@ from services.inventory import (
     list_active_products,
     search_active_products,
 )
-from services.money import parse_cash, calculate_tax_cents, format_cents, from_cents, to_cents
+from services.money import calculate_tax_cents, format_cents, from_cents, parse_cash
 from services.transaction_service import complete_transaction
 from ui.dialogs import create_modal_window
-
 
 _cart_items_box = None
 _totals_grid = None

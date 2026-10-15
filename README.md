@@ -13,6 +13,7 @@ The existing Tkinter desktop application remains available through `python main.
 - Exact integer-cent totals, Decimal half-up tax rounding, transactional stock deductions.
 - CSRF protection, durable checkout tokens, database-backed receipts, read-only public demo mode.
 - Explicit migration, integrity checks, backups, restoration, and fictional demo seeding.
+- Registration, login, revocable sessions, persistent login throttling, and isolated private stores.
 
 ## Local setup
 
@@ -27,16 +28,18 @@ python manage.py seed-demo
 python web_app.py
 ```
 
-Open http://127.0.0.1:5000. Demo seeding requires an empty database and creates fictional products and six sales over seven days, including a zero-sale day and low/out-of-stock examples. It never resets an existing database. Choose a new database path to start again.
+Open http://127.0.0.1:5000. Register an account to get a new empty private store, or use **Explore the read-only demo** on the login page. Sign out with the POST button in the header. Use a 15–128 character password/passphrase; no real card details are needed. Demo seeding requires an empty database and creates fictional products and six sales over seven days, including a zero-sale day and low/out-of-stock examples. It never resets an existing database. Choose a new database path to start again.
 
 To use an existing database, run `python manage.py init` instead of seeding. Existing databases are backed up before migration. `init` creates schema only; it does not insert demonstration data. Direct development startup retains the original two sample products for a new default database.
 
 Configuration is read from environment variables; `.env.example` documents them. A local secret is generated when none is supplied, so restarting without a stable secret clears browser sessions. `TCCP_TIMEZONE` defaults to `America/Chicago`; timestamps use this business timezone. Existing naive historical timestamps retain their original meaning and are not rewritten.
 
-## Day 13 validation
+## Automated validation
 
 ```bash
 python -m pytest -q
+python -m ruff check .
+python -m pip_audit --cache-dir /tmp/tccp-pip-audit
 # Standard-library alternative:
 python -B -m unittest discover -s tests -v
 python manage.py check
@@ -79,7 +82,7 @@ python -m gunicorn --workers 1 --threads 4 --bind 127.0.0.1:8000 web_app:app
 
 Persist the secret securely across restarts. Production refuses a missing/short secret, uses Secure/HttpOnly/SameSite cookies, and defaults to read-only. Serve it behind HTTPS and a reverse proxy. Do not expose the Flask development server or debugger publicly. SQLite requires a persistent local filesystem; use one application instance rather than shared network storage or ephemeral serverless disks.
 
-There is no user authentication or per-visitor database isolation. Public deployments should retain read-only mode. Demonstrate writes locally or in a restricted environment; never enable anonymous shared writes against meaningful inventory. Public mode keeps forms visible but rejects all POST actions. No real payment integration is included.
+Registration and login now isolate each account’s store. Public demo sessions only read a separate fictional demo store and can never modify it. `TCCP_READ_ONLY=1` additionally blocks business writes for authenticated owners; set it to `0` to enable private-store writes. Authentication forms remain available in either mode. No real payment integration is included.
 
 ## Portfolio review checklist
 
@@ -92,3 +95,33 @@ There is no user authentication or per-visitor database isolation. Public deploy
 ## Layout
 
 `web_app.py` contains Flask routes; `services/` contains inventory, money, checkout and persistence logic; `database/database.py` manages SQLite schema and connections. `templates/` and `static/` hold the web UI. `ui/` and `main.py` retain the desktop application. `manage.py` provides explicit database lifecycle commands. `tests/` contains regression and integration checks.
+
+
+## Day 14 migration and legacy ownership
+
+Stop application writers, back up, migrate explicitly, and validate before starting workers:
+
+```bash
+python manage.py init
+python manage.py check
+```
+
+The versioned additive migration preserves existing rows in an **unclaimed legacy store**. Registration never claims those records. A registered owner can be assigned deliberately by a trusted local administrator:
+
+```bash
+python manage.py assign-legacy-owner --email owner@example.com
+```
+
+This command creates a backup, refuses reassignment, and revokes existing logins for that user. Sign in again to access the legacy store. The original empty private store remains intact. Desktop/CLI access remains fixed to legacy store 1; it is a trusted local application with filesystem access, not a public authentication bypass. Do not share the database file with web users.
+
+To add a fictional public demo to an existing migrated database:
+
+```bash
+python manage.py add-public-demo
+```
+
+Set `TCCP_DB_PATH` explicitly first. No real data is copied into the demo; existing demo data is never reset. `seed-demo` still requires an empty business database.
+
+Authentication and throttling persist in SQLite across workers and restarts; keep the production secret stable, use HTTPS and a private persistent local disk, and do not log credentials or cookies. Local development uses the same limiter. Passwords use Werkzeug scrypt; new passphrases must contain 15–128 characters. Email validation checks format, not mailbox ownership. There is no email verification, recovery, MFA, staff invitation, or multi-store switcher yet.
+
+See [Day 14 design and security notes](docs/DAY14.md) for the route audit, ownership constraints, migration details, limiter settings, demo behavior, security references, and deployment limitations.

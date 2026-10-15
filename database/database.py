@@ -1,6 +1,6 @@
 # database/database.py
-import sqlite3
 import os
+import sqlite3
 
 DB_FILE = os.environ.get("TCCP_DB_PATH") or os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
@@ -10,6 +10,8 @@ DB_FILE = os.environ.get("TCCP_DB_PATH") or os.path.join(
 def get_db_connection():
     """Establishes a connection to the SQLite database with row factory enabled."""
     conn = sqlite3.connect(DB_FILE)
+    from database.tenancy import current_store_id
+    conn.create_function("authorized_store_id", 0, current_store_id)
     conn.row_factory = sqlite3.Row  # Allows accessing columns by name like dictionary keys
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
@@ -34,6 +36,8 @@ def initialize_database(seed=True):
         with conn:
             conn.execute("BEGIN IMMEDIATE")
             _initialize_schema(conn, seed)
+            from database.migrations import migrate_identity
+            migrate_identity(conn)
 
 
 def _initialize_schema(conn, seed):
@@ -132,3 +136,10 @@ def _initialize_schema(conn, seed):
             "VALUES (?, ?, ?, ?)",
             initial_products,
         )
+
+
+def get_store_connection():
+    """Only available after authorization (or to the fixed local desktop)."""
+    from database.tenancy import current_store_id
+    current_store_id()
+    return get_db_connection()

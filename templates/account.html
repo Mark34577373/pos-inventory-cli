@@ -1,0 +1,7 @@
+{% extends "base.html" %}
+{% block title %}Account | TCCP{% endblock %}
+{% block page_heading %}Your account{% endblock %}
+{% block content %}
+<section class="form-panel"><h2>{{ g.store.name }}</h2><p>Signed in as {{ g.user.email }}</p><p class="muted">Your inventory and sales are scoped to this store. All payments are simulated.</p>
+<form method="post" action="{{ url_for('auth.logout') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="secondary-button">Sign out</button></form></section>
+{% endblock %}

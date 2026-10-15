@@ -1,7 +1,7 @@
 
 import sqlite3
-from decimal import Decimal, InvalidOperation
 import tkinter as tk
+from decimal import Decimal, InvalidOperation
 from tkinter import messagebox
 
 from services.inventory import (
@@ -14,7 +14,6 @@ from services.inventory import (
     update_product_details,
 )
 from ui.dialogs import create_modal_window
-
 
 BG = "#f8f9fa"
 WHITE = "#ffffff"

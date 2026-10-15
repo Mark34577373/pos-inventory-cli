@@ -1,7 +1,7 @@
-from decimal import Decimal
+import sqlite3
 import tempfile
 import unittest
-import sqlite3
+from decimal import Decimal
 from unittest.mock import patch
 
 import database.database as database
@@ -14,10 +14,10 @@ from services.inventory import (
 )
 from services.transaction_service import complete_transaction
 from ui.inventory_view import (
+    _clear_inventory_view,
     _submit_new_product,
     _submit_remove_product,
     _submit_stock_quantity,
-    _clear_inventory_view,
     get_inventory_products,
     get_stock_display,
 )

@@ -1,14 +1,16 @@
 """Day 13 integration checks against isolated SQLite databases."""
+import re
+import sqlite3
+import tempfile
+import unittest
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
 from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
-import re
-import sqlite3
-import tempfile
-import unittest
 from unittest.mock import patch
+
+from auth_helpers import legacy_owner, login
 
 import database.database as db
 from config import TAX_RATE
@@ -28,6 +30,7 @@ class ReliabilityTests(unittest.TestCase):
         self.config = app.config.copy()
         app.config.update(TESTING=True, DEMO_READ_ONLY=False)
         self.client = app.test_client()
+        legacy_owner(self.client)
 
     def tearDown(self):
         app.config.clear()
@@ -181,6 +184,7 @@ class ReliabilityTests(unittest.TestCase):
     def test_sessions_are_isolated(self):
         self.add()
         other = app.test_client()
+        login(other)
         self.assertIn(b'Your cart is empty', other.get('/sale').data)
         self.assertNotIn(b'Your cart is empty', self.client.get('/sale').data)
 
@@ -311,7 +315,7 @@ class ReliabilityTests(unittest.TestCase):
         self.assertEqual(find_product_by_id(1)['quantity'], 4)
 
     def test_cli_checkout_and_price_mirror(self):
-        from services.checkout import session_cart, checkout
+        from services.checkout import checkout, session_cart
         from services.inventory import update_product
         session_cart.clear()
         try:

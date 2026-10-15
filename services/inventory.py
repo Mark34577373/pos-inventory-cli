@@ -1,7 +1,8 @@
 from contextlib import closing
 from decimal import Decimal, InvalidOperation
 
-from database.database import get_db_connection
+from database.database import get_store_connection as get_db_connection
+from database.tenancy import require_store_write
 from services.money import from_cents, to_cents
 
 
@@ -16,7 +17,7 @@ def list_active_products():
     """Return active products with exact cent and Decimal price values."""
     with closing(get_db_connection()) as conn:
         rows = conn.execute(
-            "SELECT * FROM products WHERE is_active = 1 ORDER BY id"
+            "SELECT * FROM products WHERE store_id = authorized_store_id() AND is_active = 1 ORDER BY id"
         ).fetchall()
 
     return [_product_from_row(row) for row in rows]
@@ -39,14 +40,14 @@ def search_active_products(search_term):
         if search_term.isdecimal():
             rows = conn.execute(
                 "SELECT * FROM products "
-                "WHERE id = ? AND is_active = 1 "
+                "WHERE store_id = authorized_store_id() AND id = ? AND is_active = 1 "
                 "ORDER BY id",
                 (int(search_term),),
             ).fetchall()
         else:
             rows = conn.execute(
                 "SELECT * FROM products "
-                "WHERE name LIKE ? COLLATE NOCASE "
+                "WHERE store_id = authorized_store_id() AND name LIKE ? COLLATE NOCASE "
                 "AND is_active = 1 "
                 "ORDER BY id",
                 (f"%{search_term}%",),
@@ -60,7 +61,7 @@ def find_product_by_id(product_id):
         return None
     with closing(get_db_connection()) as conn:
         row = conn.execute(
-            "SELECT * FROM products WHERE id = ? AND is_active = 1",
+            "SELECT * FROM products WHERE store_id = authorized_store_id() AND id = ? AND is_active = 1",
             (product_id,),
         ).fetchone()
 
@@ -76,7 +77,7 @@ def find_products_by_ids(product_ids):
 
     with closing(get_db_connection()) as conn:
         rows = conn.execute(
-            f"SELECT * FROM products WHERE id IN ({placeholders}) "
+            f"SELECT * FROM products WHERE store_id = authorized_store_id() AND id IN ({placeholders}) "
             "AND is_active = 1",
             product_ids,
         ).fetchall()
@@ -117,6 +118,7 @@ def get_quantity(prompt):
 
 def create_product(name, price, quantity):
     """Validate and persist one product, returning its new database ID."""
+    require_store_write()
     if not isinstance(name, str) or not 1 <= len(name.strip()) <= 100:
         raise ValueError("Product name cannot be empty.")
 
@@ -140,8 +142,8 @@ def create_product(name, price, quantity):
         with conn:
             cursor = conn.execute(
                 "INSERT INTO products "
-                "(name, price, price_cents, quantity) "
-                "VALUES (?, ?, ?, ?)",
+                "(name, price, price_cents, quantity, store_id) "
+                "VALUES (?, ?, ?, ?, authorized_store_id())",
                 (
                     name.strip(),
                     price_cents / 100,
@@ -155,6 +157,7 @@ def create_product(name, price, quantity):
 
 def update_product_details(product_id, name, price):
     """Update an active product's name and exact cent-denominated price."""
+    require_store_write()
     if not isinstance(name, str) or not 1 <= len(name.strip()) <= 100:
         raise ValueError("Product name cannot be empty.")
 
@@ -173,7 +176,7 @@ def update_product_details(product_id, name, price):
             cursor = conn.execute(
                 "UPDATE products "
                 "SET name = ?, price = ?, price_cents = ? "
-                "WHERE id = ? AND is_active = 1",
+                "WHERE store_id = authorized_store_id() AND id = ? AND is_active = 1",
                 (
                     name.strip(),
                     price_cents / 100,
@@ -190,6 +193,7 @@ def update_product_details(product_id, name, price):
 
 def set_product_quantity(product_id, quantity):
     """Set a product's stock quantity and return its ID."""
+    require_store_write()
     if isinstance(quantity, bool) or not isinstance(quantity, int):
         raise ValueError("Quantity must be a whole number.")
 
@@ -201,7 +205,7 @@ def set_product_quantity(product_id, quantity):
             cursor = conn.execute(
                 "UPDATE products "
                 "SET quantity = ? "
-                "WHERE id = ? AND is_active = 1",
+                "WHERE store_id = authorized_store_id() AND id = ? AND is_active = 1",
                 (
                     quantity,
                     product_id,
@@ -218,12 +222,13 @@ def set_product_quantity(product_id, quantity):
 
 def deactivate_product(product_id):
     """Remove a product from active inventory without deleting sales history."""
+    require_store_write()
     with closing(get_db_connection()) as conn:
         with conn:
             cursor = conn.execute(
                 "UPDATE products "
                 "SET is_active = 0 "
-                "WHERE id = ? AND is_active = 1",
+                "WHERE store_id = authorized_store_id() AND id = ? AND is_active = 1",
                 (product_id,),
             )
 
@@ -237,6 +242,7 @@ def deactivate_product(product_id):
 
 def remove_product_by_id(product_id):
     """Deactivate one active product by ID."""
+    require_store_write()
     if isinstance(product_id, bool) or not isinstance(product_id, int):
         raise ValueError("Product ID must be a whole number.")
 
@@ -255,13 +261,14 @@ def remove_product_by_id(product_id):
 
 def remove_product_by_name(name):
     """Deactivate one active product by exact, case-insensitive name."""
+    require_store_write()
     if not isinstance(name, str) or not 1 <= len(name.strip()) <= 100:
         raise ValueError("Product name cannot be empty.")
 
     with closing(get_db_connection()) as conn:
         matches = conn.execute(
             "SELECT id FROM products "
-            "WHERE is_active = 1 "
+            "WHERE store_id = authorized_store_id() AND is_active = 1 "
             "AND name = ? COLLATE NOCASE "
             "ORDER BY id",
             (name.strip(),),
@@ -295,7 +302,7 @@ def view_inventory():
 
     with closing(get_db_connection()) as conn:
         products = conn.execute(
-            "SELECT * FROM products WHERE is_active = 1"
+            "SELECT * FROM products WHERE store_id = authorized_store_id() AND is_active = 1"
         ).fetchall()
 
     if not products:
@@ -474,6 +481,7 @@ def search_product():
 
 def update_product_record(product_id, name, price, quantity):
     """Save an entire edit atomically, including legacy mirror values."""
+    require_store_write()
     cents = to_cents(price)
     if not isinstance(name, str) or not 1 <= len(name.strip()) <= 100:
         raise ValueError("Product name must contain 1–100 characters.")
@@ -483,7 +491,7 @@ def update_product_record(product_id, name, price, quantity):
         raise ValueError("Quantity must be a whole number between 0 and 1,000,000.")
     with closing(get_db_connection()) as conn:
         with conn:
-            result = conn.execute("UPDATE products SET name=?, price=?, price_cents=?, quantity=? WHERE id=? AND is_active=1",
+            result = conn.execute("UPDATE products SET name=?, price=?, price_cents=?, quantity=? WHERE store_id=authorized_store_id() AND id=? AND is_active=1",
                                   (name.strip(), float(from_cents(cents)), cents, quantity, product_id))
             if result.rowcount != 1:
                 raise ValueError("Product no longer exists in inventory.")

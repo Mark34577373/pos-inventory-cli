@@ -1,8 +1,8 @@
-from config import business_now
 import tkinter as tk
-from datetime import datetime, timedelta
+from datetime import timedelta
 
-from database.database import get_db_connection
+from config import business_now
+from database.database import get_store_connection as get_db_connection
 from services.money import format_cents
 
 
@@ -40,7 +40,7 @@ def get_today_sales_summary(now=None):
                     END
                 ), 0) AS card_revenue_cents
             FROM transactions
-            WHERE timestamp >= ? AND timestamp < ?
+            WHERE store_id=authorized_store_id() AND timestamp >= ? AND timestamp < ?
             """,
             (
                 start_of_day.strftime("%Y-%m-%d %H:%M:%S"),
@@ -74,7 +74,7 @@ def get_today_best_seller(now=None):
             FROM transaction_items
             JOIN transactions
                 ON transaction_items.transaction_id = transactions.id
-            WHERE transactions.timestamp >= ?
+            WHERE transactions.store_id=authorized_store_id() AND transaction_items.store_id=authorized_store_id() AND transactions.timestamp >= ?
               AND transactions.timestamp < ?
             GROUP BY product_name
             ORDER BY units_sold DESC
