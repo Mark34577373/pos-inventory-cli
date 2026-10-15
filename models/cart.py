@@ -37,7 +37,8 @@ class Cart:
 
     def get_total(self, find_product_by_id_func):
         """Calculates the total price of all items in the cart."""
-        total = 0.0
+        from services.money import from_cents
+        total = from_cents(0)
         for product_id, qty in self.items.items():
             product = find_product_by_id_func(product_id)
             if product:

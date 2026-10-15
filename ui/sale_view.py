@@ -1,3 +1,4 @@
+from config import business_now
 
 from datetime import datetime
 import sqlite3
@@ -12,20 +13,20 @@ from services.inventory import (
     list_active_products,
     search_active_products,
 )
-from services.money import calculate_tax_cents, format_cents, from_cents, to_cents
+from services.money import parse_cash, calculate_tax_cents, format_cents, from_cents, to_cents
 from services.transaction_service import complete_transaction
 from ui.dialogs import create_modal_window
 
-# Shared UI references
+
 _cart_items_box = None
 _totals_grid = None
 _products_grid = None
 _products_search_entry = None
 
-# Keep the low-stock threshold consistent with the inventory screen.
+
 LOW_STOCK_THRESHOLD = 5
 
-# UI colors
+
 BG = "#f8f9fa"
 WHITE = "#ffffff"
 TEXT = "#333333"
@@ -395,7 +396,7 @@ def refresh_ui_product_display(products=None):
         )
         add_button.pack(side=tk.BOTTOM, fill=tk.X)
 
-        # Do not bind an add action to out-of-stock products.
+
         if quantity > 0:
             add_button.bind(
                 "<Button-1>",
@@ -574,7 +575,7 @@ def refresh_ui_cart_display():
             fg=TEXT,
         ).pack(side=tk.RIGHT)
 
-        # Quantity controls
+
         controls = tk.Frame(row, bg=WHITE)
         controls.pack(fill=tk.X, pady=(6, 0))
 
@@ -644,7 +645,7 @@ def refresh_ui_cart_display():
                 button.config(bg="#ecf0f1"),
         )
 
-        # Remove button
+
         remove_button = tk.Label(
             controls,
             text="Remove",
@@ -771,8 +772,7 @@ def handle_ui_checkout(parent_frame=None):
         refresh_ui_cart_display()
         return
 
-    # Revalidate cart quantities against current inventory.
-    # The transaction service will validate stock again at commit time.
+
     stock_errors = []
 
     for product_id, quantity in cart_items.items():
@@ -865,7 +865,7 @@ def handle_ui_checkout(parent_frame=None):
                 return
 
             try:
-                cash_received_cents = to_cents(cash_input)
+                cash_received_cents = parse_cash(cash_input)
             except ValueError:
                 messagebox.showerror(
                     "Invalid Cash Amount",
@@ -900,6 +900,7 @@ def handle_ui_checkout(parent_frame=None):
                 items_to_log,
                 from_cents(total_cents),
                 payment_method,
+                cash_received_cents=cash_received_cents,
             )
 
         except ValueError as error:
@@ -943,7 +944,7 @@ def handle_ui_checkout(parent_frame=None):
         show_receipt_window(
             parent=parent_frame,
             transaction_id=transaction_id,
-            timestamp=datetime.now(),
+            timestamp=business_now(),
             items=receipt_items,
             subtotal=from_cents(subtotal_cents),
             tax=from_cents(tax_cents),

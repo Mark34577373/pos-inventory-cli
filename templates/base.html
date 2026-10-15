@@ -104,6 +104,7 @@
                     {% endif %}
                 {% endwith %}
 
+                <p class="demo-banner">Fictional demonstration data · All payments are simulated{% if config.DEMO_READ_ONLY %} · Read-only public demo{% endif %}</p>
                 {% block content %}{% endblock %}
             </div>
 

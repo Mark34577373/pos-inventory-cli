@@ -1,7 +1,9 @@
+from config import business_now
 # services/checkout.py
 import sqlite3
 
 from config import TAX_RATE
+from services.money import from_cents, calculate_tax_cents, parse_cash
 from models.cart import Cart
 from services.inventory import find_product_by_id, find_products_by_ids
 from services.transaction_service import complete_transaction
@@ -100,7 +102,7 @@ def view_cart(products=None):
     if products is None:
         products = find_products_by_ids(session_cart.get_items())
 
-    total = 0.0
+    total = from_cents(0)
     for product_id, qty in session_cart.get_items().items():
         product = products.get(product_id)
         if product is None:
@@ -125,7 +127,7 @@ def checkout():
     if subtotal == 0:
         return False
 
-    tax = subtotal * TAX_RATE
+    tax = from_cents(calculate_tax_cents(int(subtotal * 100), TAX_RATE))
     total = subtotal + tax
 
     print("-------------------------")
@@ -156,7 +158,7 @@ def checkout():
     if payment_method == "Cash":
         while True:
             try:
-                cash_received = float(input(f"Enter cash received (minimum ${total:.2f}): $"))
+                cash_received = from_cents(parse_cash(input(f"Enter cash received (minimum ${total:.2f}): $")))
             except ValueError:
                 print("Invalid amount. Please enter a valid number.")
                 continue
@@ -178,7 +180,7 @@ def checkout():
         })
 
     try:
-        tx_id = complete_transaction(items_to_log, total, payment_method)
+        tx_id = complete_transaction(items_to_log, total, payment_method, cash_received_cents=None if cash_received is None else int(cash_received * 100))
     except ValueError as error:
         print(f"Checkout failed: {error}. No changes were saved.")
         return False
@@ -191,7 +193,7 @@ def checkout():
     print("          TCCP RECEIPT")
     print("===================================")
     print(f"Transaction ID: #{tx_id}")
-    print(f"Date:           {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"Date:           {business_now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("-----------------------------------")
     print("ITEMS\n")
     

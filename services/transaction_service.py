@@ -1,3 +1,4 @@
+from config import business_now
 # services/transaction_service.py
 from datetime import datetime
 
@@ -5,7 +6,7 @@ from config import TAX_RATE
 from database.database import get_db_connection
 from services.money import calculate_tax_cents, from_cents, to_cents
 
-def complete_transaction(cart_items, total_amount, payment_method):
+def complete_transaction(cart_items, total_amount, payment_method, *, checkout_token=None, cash_received_cents=None):
     """Validate and persist a complete sale atomically using integer cents."""
     payment_method = (
         payment_method.strip().title()
@@ -22,16 +23,23 @@ def complete_transaction(cart_items, total_amount, payment_method):
     conn = get_db_connection()
     try:
         with conn:
+            conn.execute("BEGIN IMMEDIATE")
             cursor = conn.cursor()
+            if checkout_token:
+                prior = cursor.execute("SELECT id FROM transactions WHERE checkout_token=?", (checkout_token,)).fetchone()
+                if prior:
+                    return prior["id"]
             subtotal_cents = 0
             transaction_items = []
             for item in cart_items:
                 product_id = item.get("id")
+                if isinstance(product_id, bool) or not isinstance(product_id, int) or not 0 < product_id <= 9223372036854775807:
+                    raise ValueError("Invalid product ID.")
                 quantity = item.get("qty")
                 if (
                     isinstance(quantity, bool)
                     or not isinstance(quantity, int)
-                    or quantity <= 0
+                    or not 0 < quantity <= 1_000_000
                 ):
                     raise ValueError("Item quantity must be a positive whole number.")
 
@@ -70,12 +78,14 @@ def complete_transaction(cart_items, total_amount, payment_method):
                     "Prices changed during checkout. Review the cart and try again."
                 )
 
-            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            if cash_received_cents is not None and (payment_method != "Cash" or isinstance(cash_received_cents, bool) or not isinstance(cash_received_cents, int) or cash_received_cents < total_cents):
+                raise ValueError("Invalid or insufficient cash tender.")
+            timestamp = business_now().strftime("%Y-%m-%d %H:%M:%S")
             cursor.execute(
                 "INSERT INTO transactions "
-                "(timestamp, total, total_cents, payment_method) "
-                "VALUES (?, ?, ?, ?)",
-                (timestamp, float(from_cents(total_cents)), total_cents, payment_method),
+                "(timestamp, total, total_cents, payment_method, checkout_token, cash_received_cents, tax_rate_percent) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (timestamp, float(from_cents(total_cents)), total_cents, payment_method, checkout_token, cash_received_cents, str(TAX_RATE * 100)),
             )
             transaction_id = cursor.lastrowid
 
@@ -100,7 +110,7 @@ def complete_transaction(cart_items, total_amount, payment_method):
 
 def view_sales_report():
     """Show today's sales summary and the full transaction history."""
-    now = datetime.now()
+    now = business_now()
     today = now.strftime("%Y-%m-%d")
     display_date = now.strftime("%B %d, %Y").replace(" 0", " ")
 
@@ -116,7 +126,7 @@ def view_sales_report():
         ]
 
         total_transactions = len(today_transactions)
-        total_revenue = sum(tx["total"] for tx in today_transactions)
+        total_revenue = sum(from_cents(tx["total_cents"]) for tx in today_transactions)
         average_transaction = (
             total_revenue / total_transactions if total_transactions else 0.0
         )
@@ -127,11 +137,11 @@ def view_sales_report():
             return method if method in ("Cash", "Card") else "Not recorded (legacy sale)"
 
         cash_revenue = sum(
-            tx["total"] for tx in today_transactions
+            from_cents(tx["total_cents"]) for tx in today_transactions
             if payment_method_for(tx) == "Cash"
         )
         card_revenue = sum(
-            tx["total"] for tx in today_transactions
+            from_cents(tx["total_cents"]) for tx in today_transactions
             if payment_method_for(tx) == "Card"
         )
 
@@ -155,15 +165,14 @@ def view_sales_report():
 
         for tx in transactions:
             cursor.execute("""
-                SELECT ti.quantity, ti.price, p.name
+                SELECT ti.quantity, ti.price_cents, ti.product_name AS name
                 FROM transaction_items ti
-                JOIN products p ON p.id = ti.product_id
                 WHERE ti.transaction_id = ?
             """, (tx["id"],))
             items = cursor.fetchall()
 
-            subtotal = sum(item["quantity"] * item["price"] for item in items)
-            tax = tx["total"] - subtotal
+            subtotal = sum(from_cents(item["quantity"] * item["price_cents"]) for item in items)
+            tax = from_cents(tx["total_cents"]) - subtotal
 
             print("-----------------------------------")
             print(f"Transaction #{tx['id']}")
@@ -172,13 +181,13 @@ def view_sales_report():
             print("\nItems:")
 
             for item in items:
-                line_total = item["quantity"] * item["price"]
+                line_total = from_cents(item["quantity"] * item["price_cents"])
                 description = f"  {item['name']} x{item['quantity']}"
                 print(f"{description:<28}${line_total:>7.2f}")
 
             print(f"\n{'Subtotal:':<28}${subtotal:>7.2f}")
             print(f"{'Tax:':<28}${tax:>7.2f}")
-            print(f"{'Total:':<28}${tx['total']:>7.2f}")
+            print(f"{'Total:':<28}${from_cents(tx['total_cents']):>7.2f}")
 
         print("-----------------------------------")
     finally:

@@ -1,3 +1,4 @@
+from config import business_now
 import tkinter as tk
 from datetime import datetime, timedelta
 
@@ -7,7 +8,7 @@ from services.money import format_cents
 
 def get_today_sales_summary(now=None):
     """Return today's transaction count and revenue split from SQLite."""
-    current_time = now or datetime.now()
+    current_time = now or business_now()
     start_of_day = current_time.replace(
         hour=0,
         minute=0,
@@ -54,7 +55,7 @@ def get_today_sales_summary(now=None):
 
 def get_today_best_seller(now=None):
     """Return today's best-selling product by units sold."""
-    current_time = now or datetime.now()
+    current_time = now or business_now()
     start_of_day = current_time.replace(
         hour=0,
         minute=0,

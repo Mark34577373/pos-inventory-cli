@@ -28,17 +28,24 @@ class SaleViewCheckoutTests(unittest.TestCase):
 
     def _run_checkout(self, choice, cash_amount=None):
         session_cart.add_item(self.product["id"], 1)
-        dialog_values = [choice]
-        if cash_amount is not None:
-            dialog_values.append(cash_amount)
-
+        from unittest.mock import MagicMock
+        callbacks = {}
+        def button(*args, **kwargs):
+            callbacks[kwargs.get("text")] = kwargs.get("command")
+            return MagicMock()
         with (
-            patch.object(sale_view.simpledialog, "askstring", side_effect=dialog_values),
-            patch.object(sale_view.simpledialog, "askfloat", side_effect=dialog_values[1:]),
+            patch.object(sale_view, "create_modal_window", return_value=MagicMock()),
+            patch.object(sale_view.tk, "Label"),
+            patch.object(sale_view.tk, "Frame"),
+            patch.object(sale_view.tk, "Button", side_effect=button),
+            patch.object(sale_view.simpledialog, "askstring", return_value=cash_amount),
+            patch.object(sale_view, "refresh_ui_product_display"),
+            patch.object(sale_view, "refresh_ui_cart_display"),
             patch.object(sale_view, "show_receipt_window") as show_receipt,
             patch.object(sale_view.messagebox, "showerror") as showerror,
         ):
-            sale_view.handle_ui_checkout()
+            sale_view.handle_ui_checkout(MagicMock())
+            callbacks["Cash" if choice == "1" else "Card"]()
 
         showerror.assert_not_called()
         show_receipt.assert_called_once()

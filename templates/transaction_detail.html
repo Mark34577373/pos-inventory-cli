@@ -40,8 +40,10 @@
         <span class="stat-footnote">
             {% if transaction["payment_method"] == "Card" %}
                 Simulated card payment — no real card was charged
+            {% elif transaction["payment_method"] == "Cash" %}
+                Simulated cash transaction
             {% else %}
-                Cash transaction
+                Historical payment method not recorded
             {% endif %}
         </span>
     </article>

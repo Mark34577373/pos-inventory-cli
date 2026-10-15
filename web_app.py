@@ -1,6 +1,11 @@
+from config import business_now
 
 import sqlite3
-from datetime import date, datetime, timedelta
+import os
+import secrets
+import hmac
+from flask import abort
+from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
 
 from flask import (
@@ -22,16 +27,70 @@ from services.inventory import (
     list_active_products,
     search_active_products,
     set_product_quantity,
-    update_product_details,
+    update_product_record,
 )
-from services.money import calculate_tax_cents, from_cents, to_cents
+from services.money import calculate_tax_cents, from_cents, parse_cash
 from services.transaction_service import complete_transaction
 
 app = Flask(__name__)
 
-# Local-development key only. Use an environment variable and a strong,
-# private secret before deploying beyond your own computer.
-app.secret_key = "tccp-local-development-key"
+app.secret_key = os.environ.get("TCCP_SECRET_KEY") or secrets.token_hex(32)
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_SECURE=os.environ.get("TCCP_ENV") == "production",
+    MAX_CONTENT_LENGTH=64 * 1024,
+    DEMO_READ_ONLY=os.environ.get("TCCP_READ_ONLY", "1" if os.environ.get("TCCP_ENV") == "production" else "0") == "1",
+)
+if os.environ.get("TCCP_ENV") == "production" and len(os.environ.get("TCCP_SECRET_KEY", "")) < 32:
+    raise RuntimeError("Production requires TCCP_SECRET_KEY of at least 32 characters.")
+
+
+def csrf_token():
+    if "csrf_token" not in session:
+        session["csrf_token"] = secrets.token_urlsafe(32)
+    return session["csrf_token"]
+
+
+app.jinja_env.globals["csrf_token"] = csrf_token
+
+
+@app.before_request
+def protect_writes():
+    if request.method == "POST":
+        if app.config["DEMO_READ_ONLY"]:
+            abort(403, description="This public demo is read-only.")
+        expected = session.get("csrf_token", "")
+        submitted = request.form.get("csrf_token", "")
+        if not expected or not hmac.compare_digest(expected.encode("utf-8"), submitted.encode("utf-8")):
+            abort(400, description="Form expired. Refresh the page and try again.")
+
+
+@app.errorhandler(sqlite3.Error)
+def database_error(error):
+    app.logger.error("Database operation failed", exc_info=error)
+    return render_template("error.html", message="The database is unavailable. Please retry shortly."), 503
+
+
+@app.errorhandler(500)
+def unexpected_error(error):
+    return render_template("error.html", message="An unexpected error occurred. Please refresh and retry."), 500
+
+
+@app.errorhandler(400)
+@app.errorhandler(403)
+@app.errorhandler(413)
+def request_error(error):
+    return render_template("error.html", message=error.description), error.code
+
+
+@app.after_request
+def security_headers(response):
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "same-origin"
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 def get_inventory_summary(products):
@@ -90,6 +149,8 @@ def read_product_form():
 def get_sale_data():
     """Build the current sale from current database product data."""
     saved_cart = session.get("sale_cart", {})
+    if not isinstance(saved_cart, dict):
+        saved_cart = {}
     items = []
     unavailable_items = []
     subtotal_cents = 0
@@ -102,7 +163,7 @@ def get_sale_data():
             unavailable_items.append("An invalid cart entry")
             continue
 
-        if quantity <= 0:
+        if not 0 < quantity <= 1_000_000:
             unavailable_items.append(f"Product #{product_id}")
             continue
 
@@ -187,21 +248,13 @@ def get_transactions_for_period(start_date, end_date):
     finally:
         conn.close()
 
-# DAY 12 DASHBOARD ROUTE
-# Replace your existing @app.route("/") dashboard function with this version.
-# Keep your existing imports and add: from datetime import date, timedelta
-# Ensure get_db_connection is imported from database.database.
-
-from datetime import date, timedelta
-
-
 @app.route("/")
 def dashboard():
     products = list_active_products()
     summary = get_inventory_summary(products)
 
     # Use the same local dates and date(timestamp) filtering as Reports.
-    today = date.today()
+    today = business_now().date()
     start_date = today - timedelta(days=6)
 
     conn = get_db_connection()
@@ -333,8 +386,7 @@ def edit_product(product_id):
     if request.method == "POST":
         try:
             name, price, quantity = read_product_form()
-            update_product_details(product_id, name, price)
-            set_product_quantity(product_id, quantity)
+            update_product_record(product_id, name, price, quantity)
         except ValueError as error:
             flash(str(error), "error")
             return render_template(
@@ -403,6 +455,7 @@ def remove_product(product_id):
 
 @app.route("/sale")
 def sale():
+    session.setdefault("checkout_token", secrets.token_urlsafe(32))
     search_term = request.args.get("q", "").strip()
     products = (
         search_active_products(search_term)
@@ -442,7 +495,7 @@ def sale_add():
 
     new_quantity = current_quantity + quantity_to_add
 
-    if new_quantity > product["quantity"]:
+    if new_quantity > min(product["quantity"], 1_000_000):
         flash(
             f'Only {product["quantity"]} unit(s) of "{product["name"]}" '
             "are currently in stock.",
@@ -450,6 +503,9 @@ def sale_add():
         )
         return redirect(url_for("sale"))
 
+    if key not in cart and len(cart) >= 50:
+        flash("A sale supports at most 50 different products.", "error")
+        return redirect(url_for("sale"))
     cart[key] = new_quantity
     session["sale_cart"] = cart
     flash(f'Added {quantity_to_add} × "{product["name"]}" to the cart.', "success")
@@ -513,6 +569,7 @@ def sale_remove(product_id):
 
 @app.route("/sale/cancel", methods=["POST"])
 def sale_cancel():
+    session.pop("checkout_token", None)
     session.pop("sale_cart", None)
     flash("Sale canceled. Inventory has not been changed.", "success")
     return redirect(url_for("sale"))
@@ -520,6 +577,10 @@ def sale_cancel():
 
 @app.route("/sale/checkout", methods=["POST"])
 def sale_checkout():
+    token = request.form.get("checkout_token", "")
+    if not token or token != session.get("checkout_token"):
+        flash("Checkout expired. Review your cart and try again.", "error")
+        return redirect(url_for("sale"))
     sale_data = get_sale_data()
 
     if not sale_data["items"]:
@@ -548,7 +609,7 @@ def sale_checkout():
             cash_decimal = Decimal(request.form.get("cash_received", "").strip())
             if not cash_decimal.is_finite() or cash_decimal < 0:
                 raise ValueError
-            cash_received_cents = to_cents(cash_decimal)
+            cash_received_cents = parse_cash(cash_decimal)
         except (InvalidOperation, ValueError, TypeError):
             flash("Enter a valid cash amount, such as 20.00.", "error")
             return redirect(url_for("sale"))
@@ -576,6 +637,8 @@ def sale_checkout():
             items_to_log,
             from_cents(total_cents),
             payment_method,
+            checkout_token=token,
+            cash_received_cents=cash_received_cents,
         )
     except ValueError as error:
         flash(f"Checkout could not be completed: {error}", "error")
@@ -588,41 +651,33 @@ def sale_checkout():
         )
         return redirect(url_for("sale"))
 
-    receipt_items = [
-        {
-            "name": item["product"]["name"],
-            "quantity": item["quantity"],
-            "unit_price_cents": item["price_cents"],
-            "line_total_cents": item["line_total_cents"],
-        }
-        for item in sale_data["items"]
-    ]
-
-    session["last_receipt"] = {
-        "transaction_id": transaction_id,
-        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "items": receipt_items,
-        "subtotal_cents": sale_data["subtotal_cents"],
-        "tax_cents": sale_data["tax_cents"],
-        "total_cents": total_cents,
-        "tax_rate_percent": sale_data["tax_rate_percent"],
-        "payment_method": payment_method,
-        "cash_received_cents": cash_received_cents,
-        "change_cents": change_cents,
-    }
-
+    session["last_receipt_id"] = transaction_id
+    session.pop("last_receipt", None)
+    session.pop("checkout_token", None)
     session.pop("sale_cart", None)
     return redirect(url_for("receipt"))
 
 
 @app.route("/receipt")
 def receipt():
-    receipt_data = session.get("last_receipt")
-
-    if not receipt_data:
-        flash("There is no recent receipt to display.", "error")
+    transaction_id = session.get("last_receipt_id")
+    if not isinstance(transaction_id, int) or not 0 < transaction_id <= 9223372036854775807:
         return redirect(url_for("sale"))
-
+    conn = get_db_connection()
+    try:
+        row = conn.execute("SELECT * FROM transactions WHERE id=?", (transaction_id,)).fetchone()
+        if row is None:
+            return redirect(url_for("sale"))
+        receipt_data = dict(row)
+        receipt_data["items"] = [dict(item) for item in conn.execute(
+            "SELECT product_name AS name, quantity, price_cents AS unit_price_cents, quantity*price_cents AS line_total_cents FROM transaction_items WHERE transaction_id=? ORDER BY id", (transaction_id,))]
+    finally:
+        conn.close()
+    receipt_data["transaction_id"] = row["id"]
+    receipt_data["subtotal_cents"] = sum(item["line_total_cents"] for item in receipt_data["items"])
+    receipt_data["tax_cents"] = row["total_cents"] - receipt_data["subtotal_cents"]
+    receipt_data["tax_rate_percent"] = Decimal(row["tax_rate_percent"] or "0")
+    receipt_data["change_cents"] = None if row["cash_received_cents"] is None else row["cash_received_cents"] - row["total_cents"]
     return render_template("receipt.html", receipt=receipt_data)
 
 
@@ -657,9 +712,9 @@ def transactions():
     params = []
 
     if search_text:
-        if search_text.isdigit():
+        if search_text.isdecimal():
             conditions.append("id = ?")
-            params.append(int(search_text))
+            params.append(int(search_text) if len(search_text) <= 19 and int(search_text) <= 9223372036854775807 else -1)
         else:
             conditions.append("(CAST(id AS TEXT) LIKE ? OR timestamp LIKE ?)")
             params.extend([f"%{search_text}%", f"%{search_text}%"])
@@ -718,6 +773,8 @@ def transactions():
 
 @app.route("/transactions/<int:transaction_id>")
 def transaction_detail(transaction_id):
+    if transaction_id > 9223372036854775807:
+        abort(404)
     conn = get_db_connection()
     try:
         transaction = conn.execute(
@@ -772,7 +829,7 @@ def transaction_detail(transaction_id):
 
 @app.route("/reports")
 def reports():
-    today = date.today()
+    today = business_now().date()
     default_start = today - timedelta(days=29)
 
     start_text = request.args.get(
@@ -853,7 +910,7 @@ def reports():
               ON t.id = ti.transaction_id
             WHERE date(t.timestamp) >= ?
               AND date(t.timestamp) <= ?
-            GROUP BY ti.product_name
+            GROUP BY ti.product_id, ti.product_name
             ORDER BY units_sold DESC, revenue_cents DESC
             LIMIT 10
             """,
@@ -880,4 +937,4 @@ def page_not_found(error):
 
 if __name__ == "__main__":
     initialize_database()
-    app.run(host="127.0.0.1", port=5000, debug=True)
+    app.run(host="127.0.0.1", port=5000, debug=os.environ.get("TCCP_DEBUG") == "1")

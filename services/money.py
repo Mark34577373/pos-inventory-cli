@@ -14,7 +14,12 @@ def to_cents(amount):
     if not value.is_finite():
         raise ValueError("Amount must be finite.")
 
-    return int((value * _CENTS).quantize(_ONE_CENT, rounding=ROUND_HALF_UP))
+    if abs(value) > Decimal("100000000000000"):
+        raise ValueError("Amount exceeds the supported limit.")
+    try:
+        return int((value * _CENTS).quantize(_ONE_CENT, rounding=ROUND_HALF_UP))
+    except InvalidOperation as error:
+        raise ValueError("Amount exceeds the supported precision.") from error
 
 
 def from_cents(amount_cents):
@@ -34,3 +39,12 @@ def calculate_tax_cents(subtotal_cents, tax_rate):
         _ONE_CENT, rounding=ROUND_HALF_UP
     )
     return int(tax)
+
+
+def parse_cash(amount):
+    """Validate exact, non-negative cash without silently rounding fractions."""
+    cents = to_cents(amount)
+    value = Decimal(str(amount))
+    if value < 0 or value != from_cents(cents):
+        raise ValueError("Cash must be non-negative with at most two decimal places.")
+    return cents

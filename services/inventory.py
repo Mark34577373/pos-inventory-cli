@@ -1,5 +1,5 @@
 from contextlib import closing
-import math
+from decimal import Decimal, InvalidOperation
 
 from database.database import get_db_connection
 from services.money import from_cents, to_cents
@@ -32,8 +32,11 @@ def search_active_products(search_term):
     if not search_term:
         return list_active_products()
 
+    if search_term.isdecimal() and (len(search_term) > 19 or int(search_term) > 9223372036854775807):
+        return []
+
     with closing(get_db_connection()) as conn:
-        if search_term.isdigit():
+        if search_term.isdecimal():
             rows = conn.execute(
                 "SELECT * FROM products "
                 "WHERE id = ? AND is_active = 1 "
@@ -53,6 +56,8 @@ def search_active_products(search_term):
 
 
 def find_product_by_id(product_id):
+    if not isinstance(product_id, int) or not 0 < product_id <= 9223372036854775807:
+        return None
     with closing(get_db_connection()) as conn:
         row = conn.execute(
             "SELECT * FROM products WHERE id = ? AND is_active = 1",
@@ -63,6 +68,7 @@ def find_product_by_id(product_id):
 
 
 def find_products_by_ids(product_ids):
+    product_ids = list(product_ids)
     if not product_ids:
         return {}
 
@@ -83,12 +89,12 @@ def find_products_by_ids(product_ids):
 
 def get_price(prompt):
     try:
-        price = float(input(prompt))
-    except ValueError:
+        price = Decimal(input(prompt))
+    except (ValueError, InvalidOperation):
         print("Invalid input. Please enter a valid price.")
         return None
 
-    if price < 0:
+    if not price.is_finite() or not Decimal("0") < price <= Decimal("1000000"):
         print("Price cannot be negative. Please enter a valid price.")
         return None
 
@@ -102,7 +108,7 @@ def get_quantity(prompt):
         print("Invalid input. Please enter a valid quantity.")
         return None
 
-    if quantity < 0:
+    if not 0 <= quantity <= 1_000_000:
         print("Quantity cannot be negative. Please enter a valid quantity.")
         return None
 
@@ -111,7 +117,7 @@ def get_quantity(prompt):
 
 def create_product(name, price, quantity):
     """Validate and persist one product, returning its new database ID."""
-    if not isinstance(name, str) or not name.strip():
+    if not isinstance(name, str) or not 1 <= len(name.strip()) <= 100:
         raise ValueError("Product name cannot be empty.")
 
     try:
@@ -121,13 +127,13 @@ def create_product(name, price, quantity):
             "Price must be a valid finite number."
         ) from error
 
-    if price_cents <= 0:
+    if not 0 < price_cents <= 100_000_000:
         raise ValueError("Price must be greater than $0.")
 
     if isinstance(quantity, bool) or not isinstance(quantity, int):
         raise ValueError("Quantity must be a whole number.")
 
-    if quantity < 0:
+    if not 0 <= quantity <= 1_000_000:
         raise ValueError("Quantity cannot be negative.")
 
     with closing(get_db_connection()) as conn:
@@ -149,7 +155,7 @@ def create_product(name, price, quantity):
 
 def update_product_details(product_id, name, price):
     """Update an active product's name and exact cent-denominated price."""
-    if not isinstance(name, str) or not name.strip():
+    if not isinstance(name, str) or not 1 <= len(name.strip()) <= 100:
         raise ValueError("Product name cannot be empty.")
 
     try:
@@ -159,7 +165,7 @@ def update_product_details(product_id, name, price):
             "Price must be a valid finite number."
         ) from error
 
-    if price_cents <= 0:
+    if not 0 < price_cents <= 100_000_000:
         raise ValueError("Price must be greater than $0.")
 
     with closing(get_db_connection()) as conn:
@@ -187,7 +193,7 @@ def set_product_quantity(product_id, quantity):
     if isinstance(quantity, bool) or not isinstance(quantity, int):
         raise ValueError("Quantity must be a whole number.")
 
-    if quantity < 0:
+    if not 0 <= quantity <= 1_000_000:
         raise ValueError("Quantity cannot be negative.")
 
     with closing(get_db_connection()) as conn:
@@ -249,7 +255,7 @@ def remove_product_by_id(product_id):
 
 def remove_product_by_name(name):
     """Deactivate one active product by exact, case-insensitive name."""
-    if not isinstance(name, str) or not name.strip():
+    if not isinstance(name, str) or not 1 <= len(name.strip()) <= 100:
         raise ValueError("Product name cannot be empty.")
 
     with closing(get_db_connection()) as conn:
@@ -412,14 +418,14 @@ def update_product():
 
     if price_input:
         try:
-            new_price = float(price_input)
-        except ValueError:
+            new_price = Decimal(price_input)
+        except (ValueError, InvalidOperation):
             print(
                 "Invalid input. Please enter a valid price."
             )
             return
 
-        if new_price < 0:
+        if not new_price.is_finite() or not Decimal("0") < new_price <= Decimal("1000000"):
             print(
                 "Price cannot be negative. "
                 "Please enter a valid price."
@@ -442,19 +448,11 @@ def update_product():
             )
             return
 
-    with closing(get_db_connection()) as conn:
-        with conn:
-            conn.execute(
-                "UPDATE products "
-                "SET name = ?, price = ?, quantity = ? "
-                "WHERE id = ? AND is_active = 1",
-                (
-                    new_name,
-                    new_price,
-                    new_quantity,
-                    product_id,
-                ),
-            )
+    try:
+        update_product_record(product_id, new_name, new_price, new_quantity)
+    except ValueError as error:
+        print(error)
+        return
 
     print(
         f"Product with ID {product_id} has been updated."
@@ -466,25 +464,26 @@ def search_product():
         "Enter product name or ID to search: "
     ).strip()
 
-    with closing(get_db_connection()) as conn:
-        if search_term.isdigit():
-            row = conn.execute(
-                "SELECT * FROM products "
-                "WHERE id = ? AND is_active = 1",
-                (int(search_term),),
-            ).fetchone()
-        else:
-            row = conn.execute(
-                "SELECT * FROM products "
-                "WHERE LOWER(name) = ? "
-                "AND is_active = 1",
-                (search_term.lower(),),
-            ).fetchone()
-
-    if row:
-        display_product(dict(row))
+    products = search_active_products(search_term)
+    if products:
+        for product in products:
+            display_product(product)
         return
+    print(f"No product matching '{search_term}' was found.")
 
-    print(
-        f"No product matching '{search_term}' was found."
-    )
+
+def update_product_record(product_id, name, price, quantity):
+    """Save an entire edit atomically, including legacy mirror values."""
+    cents = to_cents(price)
+    if not isinstance(name, str) or not 1 <= len(name.strip()) <= 100:
+        raise ValueError("Product name must contain 1–100 characters.")
+    if not 0 < cents <= 100_000_000:
+        raise ValueError("Price must be between $0.01 and $1,000,000.00.")
+    if isinstance(quantity, bool) or not isinstance(quantity, int) or not 0 <= quantity <= 1_000_000:
+        raise ValueError("Quantity must be a whole number between 0 and 1,000,000.")
+    with closing(get_db_connection()) as conn:
+        with conn:
+            result = conn.execute("UPDATE products SET name=?, price=?, price_cents=?, quantity=? WHERE id=? AND is_active=1",
+                                  (name.strip(), float(from_cents(cents)), cents, quantity, product_id))
+            if result.rowcount != 1:
+                raise ValueError("Product no longer exists in inventory.")

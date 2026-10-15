@@ -2,3 +2,10 @@ __pycache__/
 .venv/
 .env
 tccp.db
+
+*.db
+*.db-*
+*.backup
+backups/
+.pytest_cache/
+.DS_Store

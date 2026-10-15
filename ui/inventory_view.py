@@ -1,5 +1,6 @@
 
 import sqlite3
+from decimal import Decimal, InvalidOperation
 import tkinter as tk
 from tkinter import messagebox
 
@@ -764,8 +765,8 @@ def _submit_product_edit(
         return
 
     try:
-        price = float(price_text)
-    except ValueError:
+        price = Decimal(price_text)
+    except (ValueError, InvalidOperation):
         messagebox.showerror(
             "Invalid Price",
             "Enter a valid product price.",
@@ -1079,8 +1080,8 @@ def _submit_new_product(
     name = name_entry.get().strip()
 
     try:
-        price = float(price_entry.get())
-    except ValueError:
+        price = Decimal(price_entry.get())
+    except (ValueError, InvalidOperation):
         messagebox.showerror(
             "Invalid Price",
             "Enter a valid product price.",

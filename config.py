@@ -1,3 +1,13 @@
-# config.py
 
-TAX_RATE = 0.0825  # 8.25% state tax rate
+
+TAX_RATE = 0.0825
+
+# Store timestamps as local business time consistently on every deployment.
+import os
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+BUSINESS_TIMEZONE = os.environ.get("TCCP_TIMEZONE", "America/Chicago")
+
+def business_now():
+    return datetime.now(ZoneInfo(BUSINESS_TIMEZONE)).replace(tzinfo=None)

@@ -107,6 +107,7 @@
                         <form class="quantity-form"
                               action="{{ url_for('update_quantity', product_id=product.id) }}"
                               method="post">
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                             <label class="sr-only" for="quantity-{{ product.id }}">
                                 Quantity for {{ product.name }}
                             </label>
@@ -140,7 +141,8 @@
                             </a>
                             <form action="{{ url_for('remove_product', product_id=product.id) }}"
                                   method="post"
-                                  onsubmit="return confirm('Remove {{ product.name|e }} from active inventory? Past sales records will be preserved.');">
+                                  onsubmit="return confirm('Remove this product from active inventory? Past sales records will be preserved.');">
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                 <button class="small-button danger-button" type="submit">
                                     Deactivate
                                 </button>

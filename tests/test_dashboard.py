@@ -1,6 +1,7 @@
 import tempfile
 import unittest
 from datetime import datetime
+from config import business_now
 
 import database.database as database
 from ui.dashboard import get_dashboard_data
@@ -20,7 +21,7 @@ class DashboardDataTests(unittest.TestCase):
     def test_dashboard_uses_zero_metrics_when_no_sales_exist(self):
         data = get_dashboard_data()
 
-        self.assertEqual(data["daily_sales"]["total_revenue"], 0.0)
+        self.assertEqual(data["daily_sales"]["total_revenue_cents"], 0.0)
         self.assertEqual(data["daily_sales"]["transaction_count"], 0)
         self.assertEqual(data["product_count"], 2)
         self.assertEqual(data["recent_transactions"], [])
@@ -35,24 +36,24 @@ class DashboardDataTests(unittest.TestCase):
                     ("Mouse", "Keyboard"),
                 )
             }
-            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            timestamp = business_now().strftime("%Y-%m-%d %H:%M:%S")
             cursor = conn.execute(
-                "INSERT INTO transactions (timestamp, total, payment_method) "
-                "VALUES (?, ?, ?)",
-                (timestamp, 56.26, "Cash"),
+                "INSERT INTO transactions (timestamp, total, total_cents, payment_method) "
+                "VALUES (?, ?, ?, ?)",
+                (timestamp, 56.26, 5626, "Cash"),
             )
             transaction_id = cursor.lastrowid
             conn.execute(
                 "INSERT INTO transaction_items "
-                "(transaction_id, product_id, quantity, price) "
-                "VALUES (?, ?, ?, ?)",
-                (transaction_id, products["Mouse"], 2, 10.99),
+                "(transaction_id, product_id, quantity, price, price_cents, product_name) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (transaction_id, products["Mouse"], 2, 10.99, 1099, "Mouse"),
             )
             conn.execute(
                 "INSERT INTO transaction_items "
-                "(transaction_id, product_id, quantity, price) "
-                "VALUES (?, ?, ?, ?)",
-                (transaction_id, products["Keyboard"], 1, 29.99),
+                "(transaction_id, product_id, quantity, price, price_cents, product_name) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (transaction_id, products["Keyboard"], 1, 29.99, 2999, "Keyboard"),
             )
             conn.commit()
         finally:
@@ -62,9 +63,9 @@ class DashboardDataTests(unittest.TestCase):
         receipt = data["recent_transactions"][0]
 
         self.assertEqual(data["daily_sales"]["transaction_count"], 1)
-        self.assertEqual(data["daily_sales"]["total_revenue"], 56.26)
+        self.assertEqual(data["daily_sales"]["total_revenue_cents"], 5626)
         self.assertEqual(receipt["id"], transaction_id)
-        self.assertEqual(receipt["total"], 56.26)
+        self.assertEqual(receipt["total_cents"], 5626)
         self.assertEqual(receipt["items"], "Mouse x2, Keyboard x1")
         self.assertEqual(receipt["payment_method"], "Cash")
 

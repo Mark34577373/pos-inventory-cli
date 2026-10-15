@@ -1,3 +1,4 @@
+from decimal import Decimal
 import tempfile
 import unittest
 import sqlite3
@@ -69,8 +70,8 @@ class InventoryViewTests(unittest.TestCase):
                 (3, "Mouse"),
             )
             conn.execute(
-                "INSERT INTO products (name, price, quantity) VALUES (?, ?, ?)",
-                ("USB Cable", 7.5, 9),
+                "INSERT INTO products (name, price, price_cents, quantity) VALUES (?, ?, ?, ?)",
+                ("USB Cable", 7.5, 750, 9),
             )
             conn.commit()
         finally:
@@ -81,8 +82,8 @@ class InventoryViewTests(unittest.TestCase):
         self.assertEqual(
             [(product["name"], product["price"], product["quantity"]) for product in products],
             [
-                ("Mouse", 10.99, 3),
-                ("Keyboard", 29.99, 0),
+                ("Mouse", Decimal("10.99"), 3),
+                ("Keyboard", Decimal("29.99"), 0),
                 ("USB Cable", 7.5, 9),
             ],
         )
@@ -90,15 +91,15 @@ class InventoryViewTests(unittest.TestCase):
     def test_out_of_stock_status_is_red_and_in_stock_status_shows_quantity(self):
         self.assertEqual(
             get_stock_display(0),
-            ("OUT OF STOCK", "#e74c3c", ("Arial", 10, "bold")),
+            ("OUT OF STOCK", "#dc2626", ("Arial", 10, "bold")),
         )
         self.assertEqual(
             get_stock_display(-1),
-            ("OUT OF STOCK", "#e74c3c", ("Arial", 10, "bold")),
+            ("OUT OF STOCK", "#dc2626", ("Arial", 10, "bold")),
         )
         self.assertEqual(
             get_stock_display(5),
-            ("Stock: 5", "#2c3e50", ("Arial", 11)),
+            ("LOW STOCK · 5 left", "#d97706", ("Arial", 10, "bold")),
         )
 
     def test_form_submission_saves_product_and_refreshes_inventory(self):
@@ -153,16 +154,16 @@ class InventoryViewTests(unittest.TestCase):
         conn = database.get_db_connection()
         try:
             cursor = conn.execute(
-                "INSERT INTO transactions (timestamp, total, payment_method) "
-                "VALUES (?, ?, ?)",
-                ("2026-09-30 12:00:00", 10.99, "Cash"),
+                "INSERT INTO transactions (timestamp, total, total_cents, payment_method) "
+                "VALUES (?, ?, ?, ?)",
+                ("2026-09-30 12:00:00", 10.99, 1099, "Cash"),
             )
             transaction_id = cursor.lastrowid
             conn.execute(
                 "INSERT INTO transaction_items "
-                "(transaction_id, product_id, quantity, price) "
-                "VALUES (?, ?, ?, ?)",
-                (transaction_id, mouse["id"], 1, mouse["price"]),
+                "(transaction_id, product_id, quantity, price, price_cents, product_name) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (transaction_id, mouse["id"], 1, float(mouse["price"]), mouse["price_cents"], mouse["name"]),
             )
             conn.commit()
         finally:
@@ -174,7 +175,6 @@ class InventoryViewTests(unittest.TestCase):
                 "inventory-parent",
                 dialog,
                 FakeEntry("  mOuSe  "),
-                FakeEntry(str(mouse["id"])),
             )
 
         self.assertNotIn(mouse["id"], {p["id"] for p in get_inventory_products()})
@@ -199,7 +199,7 @@ class InventoryViewTests(unittest.TestCase):
         self.assertEqual(retained["name"], "Mouse")
         self.assertEqual(product["is_active"], 0)
 
-        with self.assertRaisesRegex(ValueError, "insufficient stock"):
+        with self.assertRaisesRegex(ValueError, "no longer available"):
             complete_transaction(
                 [{"id": mouse["id"], "qty": 1, "price": mouse["price"]}],
                 10.99,
@@ -213,14 +213,14 @@ class InventoryViewTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "More than one"):
             remove_product_by_name("DUPLICATE")
 
-    def test_remove_requires_matching_product_name_and_id(self):
+    def test_remove_rejects_invalid_id(self):
         mouse = next(
             product for product in get_inventory_products()
             if product["name"] == "Mouse"
         )
 
-        with self.assertRaisesRegex(ValueError, "does not match ID"):
-            remove_product_by_id(mouse["id"], "Keyboard")
+        with self.assertRaisesRegex(ValueError, "whole number"):
+            remove_product_by_id(True)
 
         self.assertIsNotNone(find_product_by_id(mouse["id"]))
 
@@ -290,7 +290,7 @@ class InventoryViewTests(unittest.TestCase):
         self.assertTrue(all(widget.destroyed for widget in previous_widgets))
 
     def test_invalid_product_is_rejected_without_database_insert(self):
-        with self.assertRaisesRegex(ValueError, "finite non-negative"):
+        with self.assertRaisesRegex(ValueError, "finite"):
             create_product("Invalid", float("nan"), 2)
 
         with self.assertRaisesRegex(ValueError, "whole number"):

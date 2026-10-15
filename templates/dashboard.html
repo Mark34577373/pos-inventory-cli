@@ -83,7 +83,7 @@
     </div>
 
     <div class="day12-chart"
-         role="img"
+         role="group"
          aria-label="Daily sales chart for the last seven days">
         {% set chart_max = namespace(value=1) %}
 
@@ -97,7 +97,7 @@
         <div class="day12-chart-bars">
             {% for day in sales_chart %}
             <div class="day12-chart-column">
-                <div class="day12-chart-value">
+                <div class="day12-chart-value" title="{{ day.date }}: ${{ '%.2f'|format(day.sales_cents / 100) }}">
                     ${{ "%.2f"|format((day.sales_cents|default(0)) / 100) }}
                 </div>
 
@@ -109,7 +109,7 @@
                     ></div>
                 </div>
 
-                <div class="day12-chart-label">
+                <div class="day12-chart-label" title="{{ day.date }}">
                     {{ day.label }}
                 </div>
             </div>

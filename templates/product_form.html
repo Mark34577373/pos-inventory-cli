@@ -30,6 +30,7 @@
         </div>
 
         <form method="post" class="product-form">
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="form-field">
                 <label for="name">Product name</label>
                 <input

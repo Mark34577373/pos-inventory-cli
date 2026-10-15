@@ -2,7 +2,7 @@
 import sqlite3
 import os
 
-DB_FILE = os.path.join(
+DB_FILE = os.environ.get("TCCP_DB_PATH") or os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
     "tccp.db",
 )
@@ -27,9 +27,16 @@ def _ensure_column(cursor, table, column_name, declaration):
     return True
 
 
-def initialize_database():
+def initialize_database(seed=True):
     """Creates the necessary tables if they do not exist and seeds initial data."""
-    conn = get_db_connection()
+    from contextlib import closing
+    with closing(get_db_connection()) as conn:
+        with conn:
+            conn.execute("BEGIN IMMEDIATE")
+            _initialize_schema(conn, seed)
+
+
+def _initialize_schema(conn, seed):
     cursor = conn.cursor()
 
     # 1. Products Table
@@ -96,8 +103,26 @@ def initialize_database():
             "), '')"
         )
 
+    for column, declaration in (
+        ("checkout_token", "TEXT"), ("cash_received_cents", "INTEGER"),
+        ("tax_rate_percent", "TEXT"),
+    ):
+        _ensure_column(cursor, "transactions", column, declaration)
+    cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS transactions_checkout_token ON transactions(checkout_token)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS transactions_timestamp ON transactions(timestamp)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS items_transaction ON transaction_items(transaction_id)")
+    # Triggers apply equally to fresh and legacy schemas without rewriting history.
+    rules = {
+        "products": "typeof(NEW.price_cents) != 'integer' OR NEW.price_cents <= 0 OR typeof(NEW.quantity) != 'integer' OR NEW.quantity < 0 OR NEW.quantity > 1000000 OR NEW.is_active NOT IN (0,1)",
+        "transactions": "typeof(NEW.total_cents) != 'integer' OR NEW.total_cents < 0",
+        "transaction_items": "typeof(NEW.price_cents) != 'integer' OR NEW.price_cents <= 0 OR typeof(NEW.quantity) != 'integer' OR NEW.quantity <= 0",
+    }
+    for table, condition in rules.items():
+        for operation in ("INSERT", "UPDATE"):
+            cursor.execute(f"CREATE TRIGGER IF NOT EXISTS validate_{table}_{operation.lower()} BEFORE {operation} ON {table} WHEN {condition} BEGIN SELECT RAISE(ABORT, 'Invalid numeric database value'); END")
+
     cursor.execute("SELECT COUNT(*) FROM products")
-    if cursor.fetchone()[0] == 0:
+    if cursor.fetchone()[0] == 0 and seed:
         initial_products = [
             ("Mouse", 10.99, 1099, 5),
             ("Keyboard", 29.99, 2999, 0)
@@ -107,6 +132,3 @@ def initialize_database():
             "VALUES (?, ?, ?, ?)",
             initial_products,
         )
-        
-    conn.commit()
-    conn.close()

@@ -68,6 +68,7 @@
                 </div>
 
                 <form method="post" action="{{ url_for('sale_add') }}" class="add-product-form">
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <input type="hidden" name="product_id" value="{{ product.id }}">
                     <input type="hidden" name="return_q" value="{{ search_term }}">
 
@@ -124,7 +125,8 @@
         <div class="cart-warning">
             <strong>Unavailable cart entries</strong>
             <p>{{ unavailable_items|join(", ") }}</p>
-            <p>Remove unavailable items before checking out.</p>
+            <p>Clear this cart to remove unavailable entries.</p>
+            <form method="post" action="{{ url_for('sale_cancel') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="secondary-button">Clear cart</button></form>
         </div>
         {% endif %}
 
@@ -157,6 +159,7 @@
                         action="{{ url_for('sale_update', product_id=item.product.id) }}"
                         class="cart-quantity-form"
                     >
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         <label for="cart-qty-{{ item.product.id }}">Qty</label>
                         <input
                             id="cart-qty-{{ item.product.id }}"
@@ -175,6 +178,7 @@
                         method="post"
                         action="{{ url_for('sale_remove', product_id=item.product.id) }}"
                     >
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         <button class="remove-link" type="submit">Remove</button>
                     </form>
                 </div>
@@ -198,6 +202,8 @@
         </div>
 
         <form method="post" action="{{ url_for('sale_checkout') }}" class="checkout-form">
+<input type="hidden" name="checkout_token" value="{{ session.get('checkout_token', '') }}">
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="form-field">
                 <label for="payment-method">Payment method</label>
                 <select id="payment-method" name="payment_method" required>
@@ -242,6 +248,7 @@
 
         <form method="post" action="{{ url_for('sale_cancel') }}"
               onsubmit="return confirm('Cancel this sale and clear the cart?');">
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button class="cancel-sale-button" type="submit">Cancel sale</button>
         </form>
 

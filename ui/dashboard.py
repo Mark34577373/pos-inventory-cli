@@ -1,3 +1,4 @@
+from config import business_now
 # ui/dashboard.py
 import tkinter as tk
 from database.database import get_db_connection
@@ -17,14 +18,13 @@ def get_dashboard_data():
             """
             SELECT
                 t.id,
-                t.total,
+                t.total_cents,
                 t.payment_method,
                 COALESCE((
                     SELECT GROUP_CONCAT(item_description, ', ')
                     FROM (
-                        SELECT p.name || ' x' || ti.quantity AS item_description
+                        SELECT ti.product_name || ' x' || ti.quantity AS item_description
                         FROM transaction_items ti
-                        JOIN products p ON p.id = ti.product_id
                         WHERE ti.transaction_id = t.id
                         ORDER BY ti.id
                     )
@@ -142,7 +142,7 @@ def create_dashboard_view(parent_frame):
         ).pack(side=tk.LEFT)
         tk.Label(
             heading,
-            text=f"${transaction['total']:.2f}",
+            text=f"{format_cents(transaction['total_cents'])}",
             font=("Arial", 11, "bold"),
             bg="white",
             fg="#25835f",
