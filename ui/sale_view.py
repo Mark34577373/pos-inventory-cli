@@ -2,7 +2,7 @@ import sqlite3
 import tkinter as tk
 from tkinter import messagebox, simpledialog
 
-from config import TAX_RATE, business_now
+from config import business_now
 from services.checkout import session_cart
 from services.inventory import (
     find_product_by_id,
@@ -11,6 +11,7 @@ from services.inventory import (
     search_active_products,
 )
 from services.money import calculate_tax_cents, format_cents, from_cents, parse_cash
+from services.settings import default_threshold, tax_rate
 from services.transaction_service import complete_transaction
 from ui.dialogs import create_modal_window
 
@@ -321,7 +322,7 @@ def refresh_ui_product_display(products=None):
             stock_color = RED
             button_text = "Unavailable"
             button_color = "#bdc3c7"
-        elif quantity <= LOW_STOCK_THRESHOLD:
+        elif quantity <= (product["low_stock_threshold"] if product["low_stock_threshold"] is not None else default_threshold()):
             stock_text = f"LOW STOCK · {quantity} left"
             stock_color = AMBER
             button_text = "Add to Cart"
@@ -670,7 +671,7 @@ def refresh_ui_cart_display():
                 button.config(bg="#f3a7a3"),
         )
 
-    tax_cents = calculate_tax_cents(subtotal_cents, TAX_RATE)
+    tax_cents = calculate_tax_cents(subtotal_cents, tax_rate())
 
     render_totals_grid(
         subtotal_cents,
@@ -706,7 +707,7 @@ def render_totals_grid(subtotal, tax, total):
     """Display subtotal, configured tax, and total in integer cents."""
     labels = (
         ("Subtotal", subtotal, False),
-        (f"Tax ({TAX_RATE * 100:.2f}%)", tax, False),
+        (f"Tax ({tax_rate() * 100:.4f}%)", tax, False),
         ("Total", total, True),
     )
 
@@ -800,7 +801,7 @@ def handle_ui_checkout(parent_frame=None):
         for product_id, quantity in cart_items.items()
     )
 
-    tax_cents = calculate_tax_cents(subtotal_cents, TAX_RATE)
+    tax_cents = calculate_tax_cents(subtotal_cents, tax_rate())
     total_cents = subtotal_cents + tax_cents
 
     payment_window = create_modal_window(
@@ -1171,7 +1172,7 @@ def show_receipt_window(
 
     for label, amount, emphasized in (
         ("Subtotal", subtotal, False),
-        (f"Tax ({TAX_RATE * 100:.2f}%)", tax, False),
+        ("Tax recorded", tax, False),
         ("TOTAL", total, True),
     ):
         row = tk.Frame(footer, bg=WHITE)

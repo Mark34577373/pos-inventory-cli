@@ -259,14 +259,14 @@ class AuthIsolationTests(unittest.TestCase):
                 or rule.endpoint == "static"
             ):
                 continue
-            path = rule.rule.replace("<int:product_id>", "1").replace("<int:transaction_id>", "1")
+            path = rule.rule.replace("<int:product_id>", "1").replace("<int:transaction_id>", "1").replace("<int:category_id>", "1").replace("<int:adjustment_id>", "1").replace("<int:refund_id>", "1").replace("<int:alert_id>", "1").replace("<int:customer_id>", "1").replace("<int:supplier_id>", "1").replace("<int:order_id>", "1").replace("<int:expense_id>", "1").replace("<int:held_id>", "1").replace("<kind>", "overview").replace("<action>", "read")
             if "GET" in rule.methods:
                 with self.subTest(path=path):
                     response = self.client.get(path)
                     self.assertEqual(response.status_code, 302)
                     self.assertIn("/login", response.location)
             if "POST" in rule.methods:
-                self.assertEqual(self.client.post(path, data={"quantity": 0}).status_code, 302)
+                self.assertEqual(self.client.post(path, data={"quantity": 0}).status_code, 401 if path.startswith("/api/") else 302)
         self.assertFalse(self.query("SELECT * FROM transactions"))
         self.assertEqual(self.query("SELECT quantity FROM products WHERE id=1")[0]["quantity"], 5)
 
@@ -479,7 +479,7 @@ class AuthIsolationTests(unittest.TestCase):
         db.initialize_database(seed=False)
         db.initialize_database(seed=False)
         self.assertEqual(before, self.query("SELECT * FROM products ORDER BY id"))
-        self.assertEqual(self.query("SELECT version FROM schema_migrations"), [{"version": 14}])
+        self.assertEqual(self.query("SELECT version FROM schema_migrations"), [{"version": 14}, {"version": 15}, {"version": 16}, {"version": 17}, {"version": 20}, {"version": 21}, {"version": 22}, {"version": 24}, {"version": 25}, {"version": 26}, {"version": 27}])
         login(self.client, "owner@example.com")
         self.assertNotIn(b"Mouse", self.client.get("/inventory").data)
         assign_legacy_owner("owner@example.com")

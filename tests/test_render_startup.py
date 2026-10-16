@@ -108,4 +108,43 @@ assert client.post('/sale/add', base_url='https://localhost', data={'csrf_token'
         self.prepare()
         self.assertEqual(len(list(self.path.parent.glob('*.backup'))), 1)
         with sqlite3.connect(self.path) as conn:
-            self.assertIsNotNone(conn.execute('SELECT 1 FROM schema_migrations WHERE version=14').fetchone())
+            self.assertIsNotNone(conn.execute('SELECT 1 FROM schema_migrations WHERE version=27').fetchone())
+
+    def test_day14_demo_database_upgrades_without_resetting_sales(self):
+        # Build a genuine supported older schema rather than changing version markers.
+        result = self.run_command('-c', '''
+from contextlib import closing
+from database import database as db
+from database.migrations import migrate_identity
+with closing(db.get_db_connection()) as conn:
+ with conn:
+  conn.execute('BEGIN IMMEDIATE')
+  db._initialize_schema(conn, False)
+  migrate_identity(conn)
+  store = conn.execute("INSERT INTO stores(name,kind) VALUES ('Fictional older demo','demo')").lastrowid
+  conn.execute("INSERT INTO products(name,price,price_cents,quantity,store_id) VALUES ('Fictional preserved product',1.25,125,9,?)", (store,))
+  tx = conn.execute("INSERT INTO transactions(timestamp,total,total_cents,payment_method,store_id) VALUES ('2026-10-15 12:00:00',1.25,125,'Card',?)", (store,)).lastrowid
+  conn.execute("INSERT INTO transaction_items(transaction_id,product_id,quantity,price,price_cents,product_name,store_id) VALUES (?,1,1,1.25,125,'Fictional preserved product',?)", (tx,store))
+''')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        with sqlite3.connect(self.path) as conn:
+            before = conn.execute('SELECT id,total_cents,store_id FROM transactions').fetchall()
+        self.prepare()
+        with sqlite3.connect(self.path) as conn:
+            self.assertEqual(conn.execute('SELECT id,total_cents,store_id FROM transactions').fetchall(), before)
+            self.assertEqual(conn.execute('SELECT quantity,price_cents FROM products').fetchall(), [(9,125)])
+            self.assertIsNotNone(conn.execute('SELECT 1 FROM schema_migrations WHERE version=27').fetchone())
+        self.assertEqual(len(list(self.path.parent.glob('*.backup'))), 1)
+        after = self.dump()
+        self.prepare()
+        self.assertEqual(self.dump(), after)
+
+    def test_non_demo_customer_is_refused_without_modification(self):
+        self.prepare()
+        with sqlite3.connect(self.path) as conn:
+            conn.execute("INSERT INTO customers(name,store_id) VALUES ('Private fictional test',1)")
+        before = self.path.read_bytes()
+        result = self.run_command('manage.py', 'prepare-render-demo')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('Refusing non-demo', result.stdout)
+        self.assertEqual(self.path.read_bytes(), before)

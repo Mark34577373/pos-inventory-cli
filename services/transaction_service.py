@@ -1,14 +1,19 @@
 # services/transaction_service.py
 
-from config import TAX_RATE, business_now
+from config import business_now
 from database.database import get_store_connection as get_db_connection
 from database.tenancy import require_store_write
+from services.discounts import allocate_discount, discount_amount
 from services.money import calculate_tax_cents, from_cents, to_cents
+from services.settings import get_settings, receipt_snapshot
 
 
-def complete_transaction(cart_items, total_amount, payment_method, *, checkout_token=None, cash_received_cents=None):
+def complete_transaction(cart_items, total_amount, payment_method, *, checkout_token=None, cash_received_cents=None, customer_id=None, discount_kind="none", discount_value="", order_notes="", held_sale_id=None, held_claim=None):
     """Validate and persist a complete sale atomically using integer cents."""
     require_store_write()
+    from services.held_sales import finish_claim, verify_claim
+    from services.pos_cart import order_notes as validate_notes
+    order_notes = validate_notes(order_notes)
     payment_method = (
         payment_method.strip().title()
         if isinstance(payment_method, str)
@@ -30,6 +35,10 @@ def complete_transaction(cart_items, total_amount, payment_method, *, checkout_t
                 prior = cursor.execute("SELECT id FROM transactions WHERE store_id=authorized_store_id() AND checkout_token=?", (checkout_token,)).fetchone()
                 if prior:
                     return prior["id"]
+            held_sale_id = verify_claim(conn, checkout_token, held_sale_id, held_claim)
+            from services.customers import get_customer
+            customer = get_customer(customer_id, conn, active=True) if customer_id is not None else None
+            settings = get_settings(conn)
             subtotal_cents = 0
             transaction_items = []
             for item in cart_items:
@@ -45,7 +54,7 @@ def complete_transaction(cart_items, total_amount, payment_method, *, checkout_t
                     raise ValueError("Item quantity must be a positive whole number.")
 
                 product = cursor.execute(
-                    "SELECT name, quantity, price_cents FROM products "
+                    "SELECT name, quantity, price_cents, unit_cost_cents, category_id, (SELECT name FROM categories c WHERE c.id=products.category_id AND c.store_id=products.store_id) AS category_name FROM products "
                     "WHERE store_id=authorized_store_id() AND id = ? AND is_active = 1",
                     (product_id,),
                 ).fetchone()
@@ -56,23 +65,18 @@ def complete_transaction(cart_items, total_amount, payment_method, *, checkout_t
                         f"Only {product['quantity']} units of {product['name']} are available."
                     )
 
-                cursor.execute(
-                    "UPDATE products SET quantity = quantity - ? "
-                    "WHERE store_id=authorized_store_id() AND id = ? AND quantity >= ? AND is_active = 1",
-                    (quantity, product_id, quantity),
-                )
-                if cursor.rowcount != 1:
-                    raise ValueError(
-                        f"Stock changed while processing {product['name']}. Please retry."
-                    )
-
                 price_cents = product["price_cents"]
                 subtotal_cents += price_cents * quantity
                 transaction_items.append(
-                    (product_id, quantity, price_cents, product["name"])
+                    (product_id, quantity, price_cents, product["name"], product["category_id"], product["category_name"] or "Uncategorized", product["unit_cost_cents"])
                 )
 
-            tax_cents = calculate_tax_cents(subtotal_cents, TAX_RATE)
+            discount_lines = [dict(id=index, quantity=row[1], price_cents=row[2])
+                              for index, row in enumerate(transaction_items)]
+            discount_cents = discount_amount(discount_lines, discount_kind, discount_value)
+            allocate_discount(discount_lines, discount_cents)
+            subtotal_cents -= discount_cents
+            tax_cents = calculate_tax_cents(subtotal_cents, settings['tax_rate'])
             total_cents = subtotal_cents + tax_cents
             if submitted_total_cents != total_cents:
                 raise ValueError(
@@ -84,17 +88,24 @@ def complete_transaction(cart_items, total_amount, payment_method, *, checkout_t
             timestamp = business_now().strftime("%Y-%m-%d %H:%M:%S")
             cursor.execute(
                 "INSERT INTO transactions "
-                "(timestamp, total, total_cents, payment_method, checkout_token, cash_received_cents, tax_rate_percent, store_id) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, authorized_store_id())",
-                (timestamp, float(from_cents(total_cents)), total_cents, payment_method, checkout_token, cash_received_cents, str(TAX_RATE * 100)),
+                "(timestamp, total, total_cents, payment_method, checkout_token, cash_received_cents, tax_rate_percent, receipt_snapshot, customer_id, customer_name_snapshot, discount_cents, discount_kind, discount_value, order_notes, store_id) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, authorized_store_id())",
+                (timestamp, float(from_cents(total_cents)), total_cents, payment_method, checkout_token, cash_received_cents, str(settings['tax_percent']), receipt_snapshot(settings), customer_id, customer["name"] if customer else None, discount_cents, discount_kind, discount_value, order_notes),
             )
             transaction_id = cursor.lastrowid
 
-            for product_id, quantity, price_cents, product_name in transaction_items:
+            conn.audit_context.update(type='checkout', reason='Simulated checkout', transaction_id=transaction_id)
+            for original, allocation in zip(transaction_items, discount_lines, strict=True):
+                product_id, quantity, price_cents, product_name, category_id, category_name, unit_cost = original
+                cursor.execute(
+                    "UPDATE products SET quantity=quantity-? WHERE store_id=authorized_store_id() AND id=? AND quantity>=? AND is_active=1",
+                    (quantity, product_id, quantity))
+                if cursor.rowcount != 1:
+                    raise ValueError("Stock changed while processing checkout. Please retry.")
                 cursor.execute(
                     "INSERT INTO transaction_items "
-                    "(transaction_id, product_id, quantity, price, price_cents, product_name, store_id) "
-                    "VALUES (?, ?, ?, ?, ?, ?, authorized_store_id())",
+                    "(transaction_id, product_id, quantity, price, price_cents, product_name, category_id_snapshot, category_name_snapshot, discount_cents, discount_base_cents, discount_bonus_units, unit_cost_cents, store_id) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, authorized_store_id())",
                     (
                         transaction_id,
                         product_id,
@@ -102,8 +113,15 @@ def complete_transaction(cart_items, total_amount, payment_method, *, checkout_t
                         float(from_cents(price_cents)),
                         price_cents,
                         product_name,
+                        category_id,
+                        category_name,
+                        allocation["discount_cents"],
+                        allocation["discount_base_cents"],
+                        allocation["discount_bonus_units"],
+                        unit_cost,
                     ),
                 )
+            finish_claim(conn, held_sale_id, transaction_id)
     finally:
         conn.close()
 
@@ -166,13 +184,13 @@ def view_sales_report():
 
         for tx in transactions:
             cursor.execute("""
-                SELECT ti.quantity, ti.price_cents, ti.product_name AS name
+                SELECT ti.quantity, ti.price_cents, ti.discount_cents, ti.product_name AS name
                 FROM transaction_items ti
                 WHERE ti.store_id=authorized_store_id() AND ti.transaction_id = ?
             """, (tx["id"],))
             items = cursor.fetchall()
 
-            subtotal = sum(from_cents(item["quantity"] * item["price_cents"]) for item in items)
+            subtotal = sum(from_cents(item["quantity"] * item["price_cents"] - item["discount_cents"]) for item in items)
             tax = from_cents(tx["total_cents"]) - subtotal
 
             print("-----------------------------------")
@@ -182,7 +200,7 @@ def view_sales_report():
             print("\nItems:")
 
             for item in items:
-                line_total = from_cents(item["quantity"] * item["price_cents"])
+                line_total = from_cents(item["quantity"] * item["price_cents"] - item["discount_cents"])
                 description = f"  {item['name']} x{item['quantity']}"
                 print(f"{description:<28}${line_total:>7.2f}")
 

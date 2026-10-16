@@ -8,6 +8,7 @@ from flask import (
     abort,
     current_app,
     flash,
+    g,
     redirect,
     render_template,
     request,
@@ -54,9 +55,9 @@ def safe_next(value):
     return value
 
 
-def establish_login(user_id):
+def establish_login(user_id, *, store_id=None):
     revoke_session(session.get("login_token"))
-    token = create_login_session(user_id)
+    token = create_login_session(user_id,store_id=store_id)
     session.clear()
     session["login_token"] = token
     session.permanent = True
@@ -64,8 +65,8 @@ def establish_login(user_id):
 
 @bp.route("/register", methods=["GET", "POST"])
 def register():
-    if not current_app.config['REGISTRATION_ENABLED']:
-        abort(403, description='Account registration is closed on this deployment.')
+    if not current_app.config["REGISTRATION_ENABLED"]:
+        abort(403, description="Account registration is closed on this deployment.")
     if request.method == "POST":
         if not consume_rate_limit(
             current_app.secret_key, "register", request.remote_addr or "unknown"
@@ -112,6 +113,28 @@ def login():
             ), 403
         return redirect(safe_next(request.form.get("next", "")))
     return render_template("auth.html", mode="login")
+
+
+@bp.route("/stores",methods=["GET","POST"])
+def stores():
+    if not g.user or g.is_demo:
+        abort(403)
+    if request.method=='POST':
+        if set(request.form)-{'csrf_token','store_id'}:
+            abort(400)
+        try:
+            store_id=int(request.form.get('store_id',''))
+            # Membership is checked again when creating the replacement login session.
+            with closing(get_db_connection()) as conn:
+                if not conn.execute("SELECT 1 FROM store_memberships WHERE user_id=? AND store_id=? AND role='owner'",(g.user['id'],store_id)).fetchone():
+                    abort(404)
+            establish_login(g.user['id'],store_id=store_id)
+        except (ValueError,OverflowError):
+            abort(400)
+        return redirect(url_for('sale'))
+    with closing(get_db_connection()) as conn:
+        choices=[dict(row) for row in conn.execute("SELECT s.id,s.name FROM stores s JOIN store_memberships m ON m.store_id=s.id WHERE m.user_id=? AND m.role='owner' AND s.kind!='demo' ORDER BY s.name,s.id LIMIT 100",(g.user['id'],))]
+    return render_template('store_picker.html',choices=choices)
 
 
 @bp.post("/logout")

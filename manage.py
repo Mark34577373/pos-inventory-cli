@@ -19,8 +19,12 @@ def backup_database(destination):
     if not source.exists():
         raise ValueError("Source database does not exist.")
     destination.parent.mkdir(parents=True, exist_ok=True)
+    descriptor = os.open(destination, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    os.close(descriptor)
     with closing(sqlite3.connect(source.as_uri() + '?mode=ro', uri=True)) as conn:
+        conn.execute('PRAGMA foreign_keys=ON')
         with closing(sqlite3.connect(destination)) as target:
+            target.execute('PRAGMA foreign_keys=ON')
             conn.backup(target)
     destination.chmod(0o600)
     return destination
@@ -29,9 +33,49 @@ def backup_database(destination):
 def check_database(path=None):
     source = Path(path or database.DB_FILE).resolve()
     with closing(sqlite3.connect(source.as_uri() + '?mode=ro', uri=True)) as conn:
+        conn.execute('PRAGMA foreign_keys=ON')
         integrity = [row[0] for row in conn.execute("PRAGMA integrity_check")]
         foreign_keys = conn.execute("PRAGMA foreign_key_check").fetchall()
     return integrity == ['ok'] and not foreign_keys, integrity, foreign_keys
+
+
+def restore_database(source, destination):
+    """Restore a validated SQLite snapshot to a new private file only.
+
+    Incomplete or invalid output is removed; the original and existing targets
+    are never replaced. Older supported schemas remain available for explicit init.
+    """
+    from database.validation import validate_integrity, validate_schema
+
+    source, destination = Path(source).resolve(), Path(destination).resolve()
+    if destination.exists():
+        raise ValueError('Restore target must be a new path; never overwrite a live database.')
+
+    def validate(connection):
+        tables = {r[0] for r in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        if not {'products', 'transactions', 'transaction_items'}.issubset(tables):
+            raise ValueError('Restore source is not a supported TCCP database.')
+        validate_schema(connection)
+        validate_integrity(connection)
+
+    with closing(sqlite3.connect(source.as_uri() + '?mode=ro', uri=True)) as original:
+        original.execute('PRAGMA foreign_keys=ON')
+        validate(original)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        descriptor = os.open(destination, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        created_inode = os.fstat(descriptor).st_ino
+        os.close(descriptor)
+        try:
+            with closing(sqlite3.connect(destination)) as target:
+                target.execute('PRAGMA foreign_keys=ON')
+                original.backup(target)
+                validate(target)
+        except BaseException:
+            # Delete only this invocation's newly created output, even on interruption.
+            if destination.exists() and destination.stat().st_ino == created_inode:
+                destination.unlink()
+            raise
+    return destination
 
 
 def repair_missing_products():
@@ -61,23 +105,34 @@ def seed_demo(allow_existing=False):
             if conn.execute("SELECT 1 FROM stores WHERE kind='demo'").fetchone():
                 raise ValueError('A public demo store already exists.')
             store = conn.execute("INSERT INTO stores(name,kind) VALUES ('TCCP Fictional Demo','demo')").lastrowid
+            customer = conn.execute(
+                'INSERT INTO customers(store_id,name,email,notes) VALUES (?,?,?,?)',
+                (store, 'Alex Example (Fictional)', 'alex@example.invalid', 'Fictional portfolio demonstration only.'),
+            ).lastrowid
+            conn.execute(
+                'INSERT INTO suppliers(store_id,name,email,notes) VALUES (?,?,?,?)',
+                (store, 'Example Office Supply (Fictional)', 'supply@example.invalid', 'Fictional portfolio demonstration only.'),
+            )
             ids = []
             for name, cents, quantity in (('Demo Notebook',425,50), ('Demo USB Cable',750,30), ('Demo Desk Lamp',2499,3), ('Demo Keyboard',2999,0)):
                 ids.append(conn.execute('INSERT INTO products(name,price,price_cents,quantity,store_id) VALUES (?,?,?,?,?)',
                                         (name,float(from_cents(cents)),cents,quantity,store)).lastrowid)
             for offset in (6,5,3,2,1,0):
                 total = 1175 + calculate_tax_cents(1175,TAX_RATE)
-                tx = conn.execute('INSERT INTO transactions(timestamp,total,total_cents,payment_method,cash_received_cents,tax_rate_percent,store_id) VALUES (?,?,?,?,?,?,?)',
-                                  ((business_now()-timedelta(days=offset)).strftime('%Y-%m-%d 12:00:00'),float(from_cents(total)),total,'Card' if offset%2 else 'Cash',None if offset%2 else 2000,str(TAX_RATE*100),store)).lastrowid
+                tx = conn.execute('INSERT INTO transactions(timestamp,total,total_cents,payment_method,cash_received_cents,tax_rate_percent,store_id,customer_id,customer_name_snapshot) VALUES (?,?,?,?,?,?,?,?,?)',
+                                  ((business_now()-timedelta(days=offset)).strftime('%Y-%m-%d 12:00:00'),float(from_cents(total)),total,'Card' if offset%2 else 'Cash',None if offset%2 else 2000,str(TAX_RATE*100),store,customer,'Alex Example (Fictional)')).lastrowid
                 for product, name, cents in ((ids[0],'Demo Notebook',425),(ids[1],'Demo USB Cable',750)):
                     conn.execute('INSERT INTO transaction_items(transaction_id,product_id,quantity,price,price_cents,product_name,store_id) VALUES (?,?,1,?,?,?,?)',
                                  (tx,product,float(from_cents(cents)),cents,name,store))
+                    conn.audit_context.update(type='checkout', reason='Fictional demonstration checkout', transaction_id=tx)
                     conn.execute('UPDATE products SET quantity=quantity-1 WHERE id=? AND store_id=?',(product,store))
 
 
 def prepare_render_demo():
     """Opt-in bootstrap for a disposable, read-only Render Free demonstration."""
     import fcntl
+
+    from database.validation import VERSIONS, validate_schema
 
     required = {'TCCP_ENV': 'production', 'TCCP_READ_ONLY': '1',
                 'TCCP_ALLOW_REGISTRATION': '0', 'TCCP_EPHEMERAL_DEMO': '1'}
@@ -108,18 +163,23 @@ def prepare_render_demo():
                     raise ValueError('Refusing a database containing private accounts.')
                 if 'stores' in tables and conn.execute("SELECT 1 FROM stores WHERE kind='private' LIMIT 1").fetchone():
                     raise ValueError('Refusing a database containing private stores.')
-                for table in ('products', 'transactions', 'transaction_items'):
-                    if table not in tables:
+                for table in sorted(tables):
+                    # Migrations create settings for the empty legacy store too.
+                    # They are never selected by the public demo's store context.
+                    if table == 'store_settings':
                         continue
-                    columns = {row[1] for row in conn.execute(f'PRAGMA table_info({table})')}
+                    # Quote metadata identifiers; never interpolate them unescaped.
+                    identifier = '"' + table.replace('"', '""') + '"'
+                    columns = {row[0] for row in conn.execute('SELECT name FROM pragma_table_info(?)', (table,))}
                     if 'stores' in tables and 'store_id' in columns:
-                        unsafe = conn.execute(f"SELECT 1 FROM {table} r WHERE NOT EXISTS (SELECT 1 FROM stores s WHERE s.id=r.store_id AND s.kind='demo') LIMIT 1").fetchone()
+                        unsafe = conn.execute(f"SELECT 1 FROM {identifier} r WHERE NOT EXISTS (SELECT 1 FROM stores s WHERE s.id=r.store_id AND s.kind='demo') LIMIT 1").fetchone()
+                    elif table in ('products', 'transactions', 'transaction_items'):
+                        unsafe = conn.execute(f'SELECT 1 FROM {identifier} LIMIT 1').fetchone()
                     else:
-                        unsafe = conn.execute(f'SELECT 1 FROM {table} LIMIT 1').fetchone()
+                        continue
                     if unsafe:
                         raise ValueError('Refusing non-demo business records; nothing was changed.')
-                if 'schema_migrations' in tables:
-                    current = conn.execute('SELECT 1 FROM schema_migrations WHERE version=14').fetchone() is not None
+                current = validate_schema(conn) == VERSIONS
             if not current:
                 backup_database(path.with_name('demo.before-bootstrap.' + business_now().strftime('%Y%m%d%H%M%S%f') + '.backup'))
         if not current:
@@ -157,16 +217,7 @@ def main():
         elif args.command == 'restore':
             if not args.file:
                 parser.error('--file is required')
-            target = Path(database.DB_FILE).resolve()
-            if target.exists():
-                raise ValueError('Restore target must be a new path; never overwrite a live database.')
-            if not check_database(args.file)[0]:
-                raise ValueError('Backup fails integrity checks.')
-            target.parent.mkdir(parents=True, exist_ok=True)
-            with closing(sqlite3.connect(Path(args.file).resolve().as_uri() + '?mode=ro', uri=True)) as source:
-                with closing(sqlite3.connect(target)) as destination:
-                    source.backup(destination)
-            target.chmod(0o600)
+            restore_database(args.file, database.DB_FILE)
         elif args.command in ('seed-demo', 'add-public-demo'):
             if not __import__('os').environ.get('TCCP_DB_PATH'):
                 raise ValueError('Set TCCP_DB_PATH to a separate demo database first.')
@@ -184,7 +235,7 @@ def main():
             if Path(database.DB_FILE).exists():
                 backup = Path(database.DB_FILE).with_name(Path(database.DB_FILE).name + '.' + business_now().strftime('%Y%m%d%H%M%S%f') + '.backup')
                 print('Backup:', backup_database(backup))
-            database.initialize_database(seed=False)
+            database.initialize_database(seed=False, allow_missing_products=args.command=='repair-missing-products')
             if args.command == 'repair-missing-products':
                 print('Inactive unknown placeholders created:', repair_missing_products())
             ok, integrity, foreign_keys = check_database()

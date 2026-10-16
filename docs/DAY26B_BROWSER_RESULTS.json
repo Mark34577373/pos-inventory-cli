@@ -1,0 +1,771 @@
+{
+  "browser": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36",
+  "screenshot_available": false,
+  "screenshot_failure": "Page.captureScreenshot timed out headlessly and returned Unable to capture screenshot in regular Chrome.",
+  "console_errors": [],
+  "passed": 85,
+  "checks": [
+    "Checkout page fits 1440",
+    "Charge action is within viewport 1440",
+    "Checkout page fits 1200",
+    "Charge action is within viewport 1200",
+    "Checkout page fits 1024",
+    "Charge action is within viewport 1024",
+    "Checkout page fits 768",
+    "Charge action is within viewport 768",
+    "Checkout page fits 390",
+    "Mobile cart shortcut visible",
+    "F2 DOM event focuses product search",
+    "SKU search retains cart",
+    "Tap adds stock through server",
+    "Customer search opens selector",
+    "Customer selection persists",
+    "Notes save and collapse",
+    "Discount is server reflected",
+    "Held sale navigates to saved sales",
+    "Resume restores notes and customer",
+    "Charge opens payment panel",
+    "Cash preview comes from server",
+    "Checkout requires confirmation",
+    "Checkout opens receipt",
+    "Receipt retains saved notes",
+    "Print hides console navigation",
+    "Saved designer preset reaches checkout",
+    "Dashboard uses committed sale",
+    "Chart date inspection announces data",
+    "dashboard fits 1440",
+    "dashboard fits 1024",
+    "dashboard fits 768",
+    "dashboard fits 390",
+    "inventory fits 1440",
+    "inventory fits 1024",
+    "inventory fits 768",
+    "inventory fits 390",
+    "customers fits 1440",
+    "customers fits 1024",
+    "customers fits 768",
+    "customers fits 390",
+    "suppliers fits 1440",
+    "suppliers fits 1024",
+    "suppliers fits 768",
+    "suppliers fits 390",
+    "purchases fits 1440",
+    "purchases fits 1024",
+    "purchases fits 768",
+    "purchases fits 390",
+    "expenses fits 1440",
+    "expenses fits 1024",
+    "expenses fits 768",
+    "expenses fits 390",
+    "financials fits 1440",
+    "financials fits 1024",
+    "financials fits 768",
+    "financials fits 390",
+    "analytics fits 1440",
+    "analytics fits 1024",
+    "analytics fits 768",
+    "analytics fits 390",
+    "reports fits 1440",
+    "reports fits 1024",
+    "reports fits 768",
+    "reports fits 390",
+    "settings fits 1440",
+    "settings fits 1024",
+    "settings fits 768",
+    "settings fits 390",
+    "notifications fits 1440",
+    "notifications fits 1024",
+    "notifications fits 768",
+    "notifications fits 390",
+    "designer fits 1440",
+    "designer fits 1024",
+    "designer fits 768",
+    "designer fits 390",
+    "held fits 1440",
+    "held fits 1024",
+    "held fits 768",
+    "held fits 390",
+    "transactions fits 1440",
+    "transactions fits 1024",
+    "transactions fits 768",
+    "transactions fits 390",
+    "No browser JavaScript or resource errors"
+  ],
+  "viewports": [
+    {
+      "name": "checkout-1440",
+      "width": 1440,
+      "scrollWidth": 1440,
+      "height": 900,
+      "title": "Retail checkout | TCCP",
+      "main": true,
+      "charge": {
+        "top": 709.453125,
+        "bottom": 763.453125,
+        "width": 343
+      },
+      "panels": [
+        {
+          "width": 904,
+          "left": 156
+        },
+        {
+          "width": 380,
+          "left": 1060
+        }
+      ]
+    },
+    {
+      "name": "checkout-1200",
+      "width": 1200,
+      "scrollWidth": 1200,
+      "height": 900,
+      "title": "Retail checkout | TCCP",
+      "main": true,
+      "charge": {
+        "top": 709.453125,
+        "bottom": 763.453125,
+        "width": 343
+      },
+      "panels": [
+        {
+          "width": 664,
+          "left": 156
+        },
+        {
+          "width": 380,
+          "left": 820
+        }
+      ]
+    },
+    {
+      "name": "checkout-1024",
+      "width": 1024,
+      "scrollWidth": 1024,
+      "height": 900,
+      "title": "Retail checkout | TCCP",
+      "main": true,
+      "charge": {
+        "top": 787.375,
+        "bottom": 841.375,
+        "width": 313
+      },
+      "panels": [
+        {
+          "width": 674,
+          "left": 0
+        },
+        {
+          "width": 350,
+          "left": 674
+        }
+      ]
+    },
+    {
+      "name": "checkout-768",
+      "width": 768,
+      "scrollWidth": 768,
+      "height": 900,
+      "title": "Retail checkout | TCCP",
+      "main": true,
+      "charge": {
+        "top": 828,
+        "bottom": 882,
+        "width": 313
+      },
+      "panels": [
+        {
+          "width": 418,
+          "left": 0
+        },
+        {
+          "width": 350,
+          "left": 418
+        }
+      ]
+    },
+    {
+      "name": "checkout-390",
+      "width": 390,
+      "scrollWidth": 390,
+      "height": 900,
+      "title": "Retail checkout | TCCP",
+      "main": true,
+      "charge": {
+        "top": 3296.8203125,
+        "bottom": 3350.8203125,
+        "width": 358
+      },
+      "panels": [
+        {
+          "width": 390,
+          "left": 0
+        },
+        {
+          "width": 390,
+          "left": 0
+        }
+      ]
+    },
+    {
+      "name": "dashboard-1440",
+      "width": 1440,
+      "scrollWidth": 1440,
+      "height": 900,
+      "title": "Business overview | TCCP",
+      "main": true,
+      "charge": null,
+      "panels": []
+    },
+    {
+      "name": "dashboard-1024",
+      "width": 1024,
+      "scrollWidth": 1024,
+      "height": 900,
+      "title": "Business overview | TCCP",
+      "main": true,
+      "charge": null,
+      "panels": []
+    },
+    {
+      "name": "dashboard-768",
+      "width": 768,
+      "scrollWidth": 768,
+      "height": 900,
+      "title": "Business overview | TCCP",
+      "main": true,
+      "charge": null,
+      "panels": []
+    },
+    {
+      "name": "dashboard-390",
+      "width": 390,
+      "scrollWidth": 390,
+      "height": 900,
+      "title": "Business overview | TCCP",
+      "main": true,
+      "charge": null,
+      "panels": []
+    },
+    {
+      "name": "inventory-1440",
+      "width": 1440,
+      "scrollWidth": 1440,
+      "height": 900,
+      "title": "Inventory | TCCP",
+      "main": true,
+      "charge": null,
+      "panels": []
+    },
+    {
+      "name": "inventory-1024",
+      "width": 1024,
+      "scrollWidth": 1024,
+      "height": 900,
+      "title": "Inventory | TCCP",
+      "main": true,
+      "charge": null,
+      "panels": []
+    },
+    {
+      "name": "inventory-768",
+      "width": 768,
+      "scrollWidth": 768,
+      "height": 900,
+      "title": "Inventory | TCCP",
+      "main": true,
+      "charge": null,
+      "panels": []
+    },
+    {
+      "name": "inventory-390",
+      "width": 390,
+      "scrollWidth": 390,
+      "height": 900,
+      "title": "Inventory | TCCP",
+      "main": true,
+      "charge": null,
+      "panels": []
+    },
+    {
+      "name": "customers-1440",
+      "width": 1440,
+      "scrollWidth": 1440,
+      "height": 900,
+      "title": "Customers | TCCP",
+      "main": true,
+      "charge": null,
+      "panels": []
+    },
+    {
+      "name": "customers-1024",
+      "width": 1024,
+      "scrollWidth": 1024,
+      "height": 900,
+      "title": "Customers | TCCP",
+      "main": true,
+      "charge": null,
+      "panels": []
+    },
+    {
+      "name": "customers-768",
+      "width": 768,
+      "scrollWidth": 768,
+      "height": 900,
+      "title": "Customers | TCCP",
+      "main": true,
+      "charge": null,
+      "panels": []
+    },
+    {
+      "name": "customers-390",
+      "width": 390,
+      "scrollWidth": 390,
+      "height": 900,
+      "title": "Customers | TCCP",
+      "main": true,
+      "charge": null,
+      "panels": []
+    },
+    {
+      "name": "suppliers-1440",
+      "width": 1440,
+      "scrollWidth": 1440,
+      "height": 900,
+      "title": "Suppliers | TCCP",
+      "main": true,
+      "charge": null,
+      "panels": []
+    },
+    {
+      "name": "suppliers-1024",
+      "width": 1024,
+      "scrollWidth": 1024,
+      "height": 900,
+      "title": "Suppliers | TCCP",
+      "main": true,
+      "charge": null,
+      "panels": []
+    },
+    {
+      "name": "suppliers-768",
+      "width": 768,
+      "scrollWidth": 768,
+      "height": 900,
+      "title": "Suppliers | TCCP",
+      "main": true,
+      "charge": null,
+      "panels": []
+    },
+    {
+      "name": "suppliers-390",
+      "width": 390,
+      "scrollWidth": 390,
+      "height": 900,
+      "title": "Suppliers | TCCP",
+      "main": true,
+      "charge": null,
+      "panels": []
+    },
+    {
+      "name": "purchases-1440",
+      "width": 1440,
+      "scrollWidth": 1440,
+      "height": 900,
+      "title": "Purchase orders | TCCP",
+      "main": true,
+      "charge": null,
+      "panels": []
+    },
+    {
+      "name": "purchases-1024",
+      "width": 1024,
+      "scrollWidth": 1024,
+      "height": 900,
+      "title": "Purchase orders | TCCP",
+      "main": true,
+      "charge": null,
+      "panels": []
+    },
+    {
+      "name": "purchases-768",
+      "width": 768,
+      "scrollWidth": 768,
+      "height": 900,
+      "title": "Purchase orders | TCCP",
+      "main": true,
+      "charge": null,
+      "panels": []
+    },
+    {
+      "name": "purchases-390",
+      "width": 390,
+      "scrollWidth": 390,
+      "height": 900,
+      "title": "Purchase orders | TCCP",
+      "main": true,
+      "charge": null,
+      "panels": []
+    },
+    {
+      "name": "expenses-1440",
+      "width": 1440,
+      "scrollWidth": 1440,
+      "height": 900,
+      "title": "Operating expenses | TCCP",
+      "main": true,
+      "charge": null,
+      "panels": []
+    },
+    {
+      "name": "expenses-1024",
+      "width": 1024,
+      "scrollWidth": 1024,
+      "height": 900,
+      "title": "Operating expenses | TCCP",
+      "main": true,
+      "charge": null,
+      "panels": []
+    },
+    {
+      "name": "expenses-768",
+      "width": 768,
+      "scrollWidth": 768,
+      "height": 900,
+      "title": "Operating expenses | TCCP",
+      "main": true,
+      "charge": null,
+      "panels": []
+    },
+    {
+      "name": "expenses-390",
+      "width": 390,
+      "scrollWidth": 390,
+      "height": 900,
+      "title": "Operating expenses | TCCP",
+      "main": true,
+      "charge": null,
+      "panels": []
+    },
+    {
+      "name": "financials-1440",
+      "width": 1440,
+      "scrollWidth": 1440,
+      "height": 900,
+      "title": "Financial overview | TCCP",
+      "main": true,
+      "charge": null,
+      "panels": []
+    },
+    {
+      "name": "financials-1024",
+      "width": 1024,
+      "scrollWidth": 1024,
+      "height": 900,
+      "title": "Financial overview | TCCP",
+      "main": true,
+      "charge": null,
+      "panels": []
+    },
+    {
+      "name": "financials-768",
+      "width": 768,
+      "scrollWidth": 768,
+      "height": 900,
+      "title": "Financial overview | TCCP",
+      "main": true,
+      "charge": null,
+      "panels": []
+    },
+    {
+      "name": "financials-390",
+      "width": 390,
+      "scrollWidth": 390,
+      "height": 900,
+      "title": "Financial overview | TCCP",
+      "main": true,
+      "charge": null,
+      "panels": []
+    },
+    {
+      "name": "analytics-1440",
+      "width": 1440,
+      "scrollWidth": 1440,
+      "height": 900,
+      "title": "Sales analytics | TCCP",
+      "main": true,
+      "charge": null,
+      "panels": []
+    },
+    {
+      "name": "analytics-1024",
+      "width": 1024,
+      "scrollWidth": 1024,
+      "height": 900,
+      "title": "Sales analytics | TCCP",
+      "main": true,
+      "charge": null,
+      "panels": []
+    },
+    {
+      "name": "analytics-768",
+      "width": 768,
+      "scrollWidth": 768,
+      "height": 900,
+      "title": "Sales analytics | TCCP",
+      "main": true,
+      "charge": null,
+      "panels": []
+    },
+    {
+      "name": "analytics-390",
+      "width": 390,
+      "scrollWidth": 390,
+      "height": 900,
+      "title": "Sales analytics | TCCP",
+      "main": true,
+      "charge": null,
+      "panels": []
+    },
+    {
+      "name": "reports-1440",
+      "width": 1440,
+      "scrollWidth": 1440,
+      "height": 900,
+      "title": "Sales Reports | TCCP",
+      "main": true,
+      "charge": null,
+      "panels": []
+    },
+    {
+      "name": "reports-1024",
+      "width": 1024,
+      "scrollWidth": 1024,
+      "height": 900,
+      "title": "Sales Reports | TCCP",
+      "main": true,
+      "charge": null,
+      "panels": []
+    },
+    {
+      "name": "reports-768",
+      "width": 768,
+      "scrollWidth": 768,
+      "height": 900,
+      "title": "Sales Reports | TCCP",
+      "main": true,
+      "charge": null,
+      "panels": []
+    },
+    {
+      "name": "reports-390",
+      "width": 390,
+      "scrollWidth": 390,
+      "height": 900,
+      "title": "Sales Reports | TCCP",
+      "main": true,
+      "charge": null,
+      "panels": []
+    },
+    {
+      "name": "settings-1440",
+      "width": 1440,
+      "scrollWidth": 1440,
+      "height": 900,
+      "title": "Business settings | TCCP",
+      "main": true,
+      "charge": null,
+      "panels": []
+    },
+    {
+      "name": "settings-1024",
+      "width": 1024,
+      "scrollWidth": 1024,
+      "height": 900,
+      "title": "Business settings | TCCP",
+      "main": true,
+      "charge": null,
+      "panels": []
+    },
+    {
+      "name": "settings-768",
+      "width": 768,
+      "scrollWidth": 768,
+      "height": 900,
+      "title": "Business settings | TCCP",
+      "main": true,
+      "charge": null,
+      "panels": []
+    },
+    {
+      "name": "settings-390",
+      "width": 390,
+      "scrollWidth": 390,
+      "height": 900,
+      "title": "Business settings | TCCP",
+      "main": true,
+      "charge": null,
+      "panels": []
+    },
+    {
+      "name": "notifications-1440",
+      "width": 1440,
+      "scrollWidth": 1440,
+      "height": 900,
+      "title": "Notifications | TCCP",
+      "main": true,
+      "charge": null,
+      "panels": []
+    },
+    {
+      "name": "notifications-1024",
+      "width": 1024,
+      "scrollWidth": 1024,
+      "height": 900,
+      "title": "Notifications | TCCP",
+      "main": true,
+      "charge": null,
+      "panels": []
+    },
+    {
+      "name": "notifications-768",
+      "width": 768,
+      "scrollWidth": 768,
+      "height": 900,
+      "title": "Notifications | TCCP",
+      "main": true,
+      "charge": null,
+      "panels": []
+    },
+    {
+      "name": "notifications-390",
+      "width": 390,
+      "scrollWidth": 390,
+      "height": 900,
+      "title": "Notifications | TCCP",
+      "main": true,
+      "charge": null,
+      "panels": []
+    },
+    {
+      "name": "designer-1440",
+      "width": 1440,
+      "scrollWidth": 1440,
+      "height": 900,
+      "title": "POS Layout Designer | TCCP",
+      "main": true,
+      "charge": null,
+      "panels": []
+    },
+    {
+      "name": "designer-1024",
+      "width": 1024,
+      "scrollWidth": 1024,
+      "height": 900,
+      "title": "POS Layout Designer | TCCP",
+      "main": true,
+      "charge": null,
+      "panels": []
+    },
+    {
+      "name": "designer-768",
+      "width": 768,
+      "scrollWidth": 768,
+      "height": 900,
+      "title": "POS Layout Designer | TCCP",
+      "main": true,
+      "charge": null,
+      "panels": []
+    },
+    {
+      "name": "designer-390",
+      "width": 390,
+      "scrollWidth": 390,
+      "height": 900,
+      "title": "POS Layout Designer | TCCP",
+      "main": true,
+      "charge": null,
+      "panels": []
+    },
+    {
+      "name": "held-1440",
+      "width": 1440,
+      "scrollWidth": 1440,
+      "height": 900,
+      "title": "Held sales | TCCP",
+      "main": true,
+      "charge": null,
+      "panels": []
+    },
+    {
+      "name": "held-1024",
+      "width": 1024,
+      "scrollWidth": 1024,
+      "height": 900,
+      "title": "Held sales | TCCP",
+      "main": true,
+      "charge": null,
+      "panels": []
+    },
+    {
+      "name": "held-768",
+      "width": 768,
+      "scrollWidth": 768,
+      "height": 900,
+      "title": "Held sales | TCCP",
+      "main": true,
+      "charge": null,
+      "panels": []
+    },
+    {
+      "name": "held-390",
+      "width": 390,
+      "scrollWidth": 390,
+      "height": 900,
+      "title": "Held sales | TCCP",
+      "main": true,
+      "charge": null,
+      "panels": []
+    },
+    {
+      "name": "transactions-1440",
+      "width": 1440,
+      "scrollWidth": 1440,
+      "height": 900,
+      "title": "Transactions | TCCP",
+      "main": true,
+      "charge": null,
+      "panels": []
+    },
+    {
+      "name": "transactions-1024",
+      "width": 1024,
+      "scrollWidth": 1024,
+      "height": 900,
+      "title": "Transactions | TCCP",
+      "main": true,
+      "charge": null,
+      "panels": []
+    },
+    {
+      "name": "transactions-768",
+      "width": 768,
+      "scrollWidth": 768,
+      "height": 900,
+      "title": "Transactions | TCCP",
+      "main": true,
+      "charge": null,
+      "panels": []
+    },
+    {
+      "name": "transactions-390",
+      "width": 390,
+      "scrollWidth": 390,
+      "height": 900,
+      "title": "Transactions | TCCP",
+      "main": true,
+      "charge": null,
+      "panels": []
+    }
+  ]
+}

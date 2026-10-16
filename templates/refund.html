@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% from "components/ui.html" import error_summary %}
+{% block title %}Simulated refund | TCCP{% endblock %}
+{% block page_heading %}Simulated refund{% endblock %}
+{% block content %}
+<section class="panel">
+<h2>Transaction #{{ transaction.id }} · {{ g.store.name }}</h2>
+<p>Original total {{ transaction.total_cents|money }} · Already refunded {{ refunded_cents|money }}</p>
+{{ error_summary(error) }}
+{% if quote %}
+<h3>Confirm simulated refund</h3>
+
+<div class="table-wrap" role="region" aria-label="Refund preview items" tabindex="0"><table class="data-table"><thead><tr><th scope="col">Product</th><th scope="col">Quantity</th><th scope="col">Refund including allocated tax</th></tr></thead><tbody>
+{% for item in quote['items'] %}<tr><td>{{ item.product_name }}</td><td>{{ item.quantity }}</td><td>{{ item.total_cents|money }}</td></tr>{% endfor %}</tbody></table></div>
+<p>Allocated tax: {{ quote.tax_cents|money }} · <strong>Total refund: {{ quote.total_cents|money }}</strong></p>
+<p>Reason: {{ quote.reason }}</p><p>Restock: {{ 'Yes — returned units will be restored; inactive products remain inactive.' if quote.restock else 'No — inventory will not change.' }}</p>
+<form method="post" data-once><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="confirmation" value="{{ confirmation }}"><button class="primary-button" type="submit">Confirm simulated refund · {{ quote.total_cents|money }}</button></form>
+{% elif eligible and status != 'refunded' and not g.is_demo and not config.DEMO_READ_ONLY %}
+<p>Tax uses the original sale's fixed allocation. No real money is moved. Damaged or discarded goods should not be restocked.</p>
+<form method="post" data-once>
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+<div class="form-field"><label for="mode">Refund scope</label><select id="mode" name="mode"><option value="partial" {% if request.form.get('mode','partial')=='partial' %}selected{% endif %}>Selected quantities</option><option value="full" {% if request.form.get('mode')=='full' %}selected{% endif %}>All remaining items</option></select></div>
+<div class="table-wrap" role="region" aria-label="Scrollable data table" tabindex="0"><table class="data-table"><thead><tr><th scope="col">Historical product</th><th scope="col">Purchased</th><th scope="col">Already refunded</th><th scope="col">Quantity to refund</th></tr></thead><tbody>
+{% for item in items %}<tr><td>{{ item.product_name }} · {{ item.price_cents|money }} each</td><td>{{ item.quantity }}</td><td>{{ item.refunded_quantity }}</td><td><label class="sr-only" for="qty-{{ item.id }}">Refund quantity for {{ item.product_name }}</label><input id="qty-{{ item.id }}" type="number" name="qty_{{ item.id }}" min="0" max="{{ item.remaining_quantity }}" step="1" value="{{ request.form.get('qty_' ~ item.id, '0') }}" required></td></tr>{% endfor %}</tbody></table></div>
+<div class="form-field"><label for="reason">Reason</label><textarea id="reason" name="reason" maxlength="500" required>{{ request.form.get('reason','') }}</textarea></div>
+<label><input type="checkbox" name="restock" {% if request.form.get('restock')=='on' %}checked{% endif %}> Restock returned goods (off by default)</label>
+<p><button class="primary-button" type="submit">Preview refund</button></p></form>
+{% else %}<p role="status">{% if not eligible %}This historical sale cannot be reconciled and is not eligible for refunds.{% elif status == 'refunded' %}This sale has been fully refunded.{% else %}Refunds are unavailable in read-only mode.{% endif %}</p>{% endif %}
+<a class="text-link" href="{{ url_for('transaction_detail', transaction_id=transaction.id) }}">Back to transaction</a>
+</section>
+{% endblock %}

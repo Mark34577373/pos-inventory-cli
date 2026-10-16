@@ -1,0 +1,19 @@
+{% extends 'base.html' %}
+{% block title %}Supplier | TCCP{% endblock %}
+{% block page_heading %}{{ 'Edit supplier' if request.view_args.get('supplier_id') else 'Add supplier' }}{% endblock %}
+{% block content %}
+<section class="panel">
+<p class="muted">Contact details are optional. Suppliers are deactivated rather than deleted.</p>
+{% if error %}<p role="alert">{{ error }}</p>{% endif %}
+{% if ui_can_write %}<form method="post">
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+{% for field,label,maximum,type in [('name','Supplier name',100,'text'),('contact','Contact name (optional)',100,'text'),('email','Email (optional)',254,'email'),('phone','Phone (optional)',80,'tel')] %}
+<div class="form-field"><label for="supplier-{{ field }}">{{ label }}</label><input id="supplier-{{ field }}" name="{{ field }}" type="{{ type }}" maxlength="{{ maximum }}" value="{{ supplier.get(field,'') }}" {% if field=='name' %}required{% endif %}></div>
+{% endfor %}
+<div class="form-field"><label for="supplier-address">Address (optional)</label><textarea id="supplier-address" name="address" maxlength="500">{{ supplier.get('address','') }}</textarea></div>
+<div class="form-field"><label for="supplier-notes">Notes (optional)</label><textarea id="supplier-notes" name="notes" maxlength="1000">{{ supplier.get('notes','') }}</textarea></div>
+<button class="primary-button" type="submit">Save supplier</button>
+</form>{% else %}<p>This workspace is read-only.</p>{% endif %}
+<a href="{{ url_for('purchasing.directory') }}">Supplier directory</a>
+</section>
+{% endblock %}

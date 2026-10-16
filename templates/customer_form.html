@@ -1,0 +1,18 @@
+{% extends 'base.html' %}
+{% block title %}Customer | TCCP{% endblock %}
+{% block page_heading %}{{ 'Edit customer' if request.view_args.get('customer_id') else 'Add customer' }}{% endblock %}
+{% block content %}
+<section class="panel">
+<p class="muted">Contact details are optional. Matching contact details never merge customer records.</p>
+{% if error %}<p role="alert">{{ error }}</p>{% endif %}
+{% if ui_can_write %}<form method="post">
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+{% for field,label,maximum,type in [('name','Display name',100,'text'),('email','Email (optional)',254,'email'),('phone','Phone (optional)',80,'tel')] %}
+<div class="form-field"><label for="customer-{{ field }}">{{ label }}</label><input id="customer-{{ field }}" name="{{ field }}" type="{{ type }}" maxlength="{{ maximum }}" value="{{ customer.get(field,'') }}" {% if field=='name' %}required{% endif %}></div>
+{% endfor %}
+<div class="form-field"><label for="customer-notes">Notes (optional)</label><textarea id="customer-notes" name="notes" maxlength="1000">{{ customer.get('notes','') }}</textarea></div>
+<button class="primary-button" type="submit">Save customer</button>
+</form>{% else %}<p>This workspace is read-only.</p>{% endif %}
+<a href="{{ url_for('customers.directory') }}">Customer directory</a>
+</section>
+{% endblock %}

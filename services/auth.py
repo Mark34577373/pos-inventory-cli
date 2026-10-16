@@ -12,6 +12,7 @@ from flask import has_request_context
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from database.database import get_db_connection
+from services.validation import visible_text
 
 # OWASP's supported scrypt work factor; Werkzeug supplies salt and encoding.
 HASH_METHOD = "scrypt:32768:8:3"
@@ -37,7 +38,7 @@ def register_user(email, password, confirmation, store_name=""):
         raise ValueError("Passwords do not match.")
     if not isinstance(store_name, str) or len(store_name.strip()) > 100:
         raise ValueError("Store name must be 100 characters or fewer.")
-    store_name = store_name.strip() or "My store"
+    store_name = visible_text(store_name, "Store name", 100, optional=True) or "My store"
     password_hash = generate_password_hash(password, method=HASH_METHOD)
     with closing(get_db_connection()) as conn:
         try:
@@ -83,14 +84,16 @@ def revoke_session(token):
                 conn.execute("DELETE FROM auth_sessions WHERE token_hash=?", (digest_token(token),))
 
 
-def create_login_session(user_id):
+def create_login_session(user_id, *, store_id=None):
+    if store_id is not None and (type(store_id) is not int or not 0<store_id<=9223372036854775807):
+        raise ValueError("Choose an authorized store.")
     token = secrets.token_urlsafe(32)
     now = int(time.time())
     with closing(get_db_connection()) as conn:
         with conn:
             membership = conn.execute(
-                "SELECT m.store_id FROM store_memberships m JOIN stores s ON s.id=m.store_id WHERE m.user_id=? AND s.kind!='demo' ORDER BY m.store_id LIMIT 1",
-                (user_id,),
+                "SELECT m.store_id FROM store_memberships m JOIN stores s ON s.id=m.store_id WHERE m.user_id=? AND s.kind!='demo' AND (? IS NULL OR m.store_id=?) ORDER BY m.store_id LIMIT 1",
+                (user_id,store_id,store_id),
             ).fetchone()
             if membership is None:
                 raise ValueError("No authorized store is available.")

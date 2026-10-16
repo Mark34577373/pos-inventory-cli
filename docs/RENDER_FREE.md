@@ -7,8 +7,8 @@ Environment page for its current value. With no environment override, local code
 defaults to the repository's `tccp.db`; production refuses a missing absolute path.
 Do not upload that development database.
 
-This checkout currently uses schema version **14**, not the later version mentioned
-in earlier conversation. `python manage.py init` backs up an existing database,
+The merged application uses schema version **27**. Bootstrap checks the complete
+ordered migration manifest rather than treating version 14 as current. `python manage.py init` backs up an existing database,
 runs the transactional schema initializer and identity migration with `seed=False`,
 and checks SQLite integrity/foreign keys. It creates the unclaimed legacy store,
 not an owner account or fictional sales. Plain `init` never seeds sample products.
@@ -54,8 +54,10 @@ Existing unrelated/corrupt databases, private accounts/stores and non-demo busin
 records cause failure without being overwritten or erased.
 
 On a new file, it initializes/migrates without generic product seeding. If an existing
-compatible file needs migration, it first makes a timestamped backup. Already migrated
-files skip initialization. The existing fictional seeder is transactional and refuses
+compatible file needs migration, it first makes a timestamped backup. Fully migrated files skip initialization. Supported older fictional demo schemas
+are backed up and upgraded through the existing transactional migrations, preserving
+products and sales. Every store-scoped business table is checked for non-demo data;
+automatically created legacy store settings remain inaccessible to demo visitors. The existing fictional seeder is transactional and refuses
 duplicate demo stores; the wrapper checks for the demo first and skips seeding on
 subsequent starts. An interrupted bootstrap can resume an empty initialized database.
 Existing demo rows remain unchanged; the result is checked and permissioned 0600.
@@ -92,9 +94,18 @@ cover initialized-but-unseeded recovery, private-data refusal, bad configuration
 corrupt-file preservation. No development data is migrated or seeded by these checks.
 No commit, push, Render setting change or public deployment is performed automatically.
 
-Verified locally: combined startup/authentication/reliability run **53 passed,
-33 subtests passed** (47.04 seconds); final bootstrap file, including the subsequently
-added empty-file migration-backup case, **6 passed, 5 subtests passed** (5.98 seconds).
-These runs overlap. Ruff, Python compilation and diff whitespace checks passed.
-Production Flask imports and HTTPS test-client requests were exercised; no live
-Render service or public TLS endpoint was changed or verified.
+Verification results after merging the commercial UI and adapting the bootstrap
+are recorded below. The earlier Day 14 bootstrap results do not establish correctness
+of this merged application. No live Render service or public TLS endpoint is changed
+or verified by local tests.
+
+After resolving the merge from `feature/commercial-ui` into `main`, the complete
+merged suite passed: **274 tests and 168 subtests**, zero failures/errors/skips,
+in **454.52 seconds**. JUnit evidence is in the local temporary file
+`/private/tmp/tccp-merge-results.xml`. The eight bootstrap tests include schema-14
+demo upgrade to schema 27 without resetting existing sales or inventory, repeat
+startup preservation, and rejection of legacy customer data. All **36 frontend
+checks** passed. Ruff, compilation, dependency consistency and diff whitespace
+checks passed; the tracked sensitive-file/key-pattern scan found zero matches.
+The full test run permitted its temporary local Gunicorn Unix socket. No browser
+visual review or live Render deployment is claimed by these merge checks.

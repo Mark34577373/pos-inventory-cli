@@ -1,0 +1,6 @@
+{% macro icon(kind='product') -%}
+<svg class="pos-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{ {'product':'M4 7l8-4 8 4v10l-8 4-8-4z M4 7l8 4 8-4 M12 11v10','category':'M3 7h7l2-3h9v16H3z','all':'M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z','favorite':'M12 3l3 6 6 1-4 5 1 6-6-3-6 3 1-6-4-5 6-1z','search':'M10 3a7 7 0 1 0 0 14 7 7 0 0 0 0-14 M15 15l6 6','quantity':'M4 7h16 M4 17h16 M8 4v6 M16 14v6','cart':'M3 4h3l3 12h10l2-8H7 M10 21h1 M18 21h1'}.get(kind,'M4 7h16v14H4z') }}"/></svg>
+{%- endmacro %}
+{% macro category_link(href,label,active=false,kind='category') -%}
+<a class="pos-category-item" href="{{ href }}"{% if active %} aria-current="true"{% endif %}>{{ icon(kind) }}<span>{{ label }}</span>{% if active %}<span class="category-selected" aria-hidden="true">●</span>{% endif %}</a>
+{%- endmacro %}

@@ -1,0 +1,21 @@
+{% extends 'base.html' %}
+{% from 'components/ui.html' import page_header with context %}
+{% block title %}Suppliers | TCCP{% endblock %}
+{% block page_heading %}Suppliers{% endblock %}
+{% block content %}
+{{ page_header('PURCHASING','Supplier directory','Manage supplier contacts, linked products and purchasing history.') }}
+<section class="panel">
+{% if ui_can_write %}<a class="primary-button" href="{{ url_for('purchasing.supplier_edit') }}">Add supplier</a>{% endif %}
+<form method="get" class="filter-form">
+<label for="supplier-search">Search name or contact</label><input type="search" id="supplier-search" name="q" value="{{ filters.q }}" maxlength="100">
+<label for="supplier-state">Status</label><select id="supplier-state" name="state">{% for state in ['active','inactive','all'] %}<option value="{{ state }}" {% if state==filters.state %}selected{% endif %}>{{ state|title }}</option>{% endfor %}</select>
+<label for="supplier-sort">Sort</label><select id="supplier-sort" name="sort">{% for sort in ['name','newest','oldest'] %}<option value="{{ sort }}" {% if sort==filters.sort %}selected{% endif %}>{{ sort|title }}</option>{% endfor %}</select>
+<button class="secondary-button" type="submit">Search / filter</button></form>
+<a class="secondary-button" data-export href="{{ url_for('purchasing.supplier_export',q=filters.q,state=filters.state,sort=filters.sort) }}">Export purchasing summaries</a>
+<p>{{ count }} suppliers · Page {{ page }} of {{ pages }}</p>
+<div class="table-wrap" role="region" aria-label="Scrollable business data" tabindex="0"><table class="data-table"><thead><tr><th scope="col">Supplier</th><th scope="col">Email</th><th scope="col">Phone</th><th scope="col">Status</th></tr></thead><tbody>
+{% for supplier in rows %}<tr><td><a href="{{ url_for('purchasing.supplier_detail',supplier_id=supplier.id) }}">{{ supplier.name }}</a></td><td>{{ supplier.email or '—' }}</td><td>{{ supplier.phone or '—' }}</td><td>{{ 'Active' if supplier.is_active else 'Inactive' }}</td></tr>{% else %}<tr><td colspan="4">No suppliers match these filters.</td></tr>{% endfor %}
+</tbody></table></div>
+<nav aria-label="Supplier pages">{% if pagination.previous %}<a href="{{ pagination.previous }}">Previous</a>{% endif %} {% if pagination.next %}<a href="{{ pagination.next }}">Next</a>{% endif %}</nav>
+</section>
+{% endblock %}

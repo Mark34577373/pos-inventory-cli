@@ -2,6 +2,7 @@
 {% block title %}Account | TCCP{% endblock %}
 {% block page_heading %}Your account{% endblock %}
 {% block content %}
-<section class="form-panel"><h2>{{ g.store.name }}</h2><p>Signed in as {{ g.user.email }}</p><p class="muted">Your inventory and sales are scoped to this store. All payments are simulated.</p>
-<form method="post" action="{{ url_for('auth.logout') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="secondary-button">Sign out</button></form></section>
+<section class="form-page"><div class="form-panel"><p class="eyebrow">PRIVATE WORKSPACE</p><h2>{{ g.store.name }}</h2><p class="muted">Your inventory and sales belong to this store. All payments and refunds are simulated.</p>
+<dl><div class="account-detail"><dt>Email address</dt><dd>{{ g.user.email }}</dd></div><div class="account-detail"><dt>Store</dt><dd>{{ g.store.name }}</dd></div><div class="account-detail"><dt>Access</dt><dd>{{ 'Owner · writable workspace' if ui_can_write else 'Owner · read-only deployment' }}</dd></div></dl>
+<div class="form-actions"><a class="primary-button" href="{{ url_for('dashboard') }}">Open dashboard</a><form method="post" action="{{ url_for('auth.logout') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="secondary-button" type="submit">Sign out</button></form></div></div></section>
 {% endblock %}

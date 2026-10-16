@@ -17,27 +17,76 @@ from flask import (
     session,
     url_for,
 )
-from werkzeug.exceptions import SecurityError
+from werkzeug.exceptions import HTTPException, SecurityError
 
+from alert_routes import bp as alerts_blueprint
+from analytics_routes import bp as analytics_blueprint
 from auth_routes import bp as auth_blueprint
-from config import TAX_RATE, business_now
+from business_routes import bp as business_blueprint
+from config import BUSINESS_TIMEZONE, business_now
+from customer_routes import bp as customers_blueprint
 from database.database import get_store_connection as get_db_connection
 from database.database import initialize_database
+from inventory_routes import bp as inventory_blueprint
+from inventory_routes import pagination_links
+from pos_routes import bp as pos_blueprint
+from purchasing_routes import bp as purchasing_blueprint
+from refund_routes import bp as refund_blueprint
+from services.analytics import ReportLimitError, build_analytics, resolve_filters
 from services.auth import load_identity
 from services.inventory import (
     create_product,
     deactivate_product,
     find_product_by_id,
     list_active_products,
-    search_active_products,
     set_product_quantity,
     update_product_record,
 )
-from services.money import calculate_tax_cents, from_cents, parse_cash
+from services.inventory_management import (
+    UNSET,
+    inventory_filters,
+    list_categories,
+    positive_id,
+    query_inventory,
+    stock_status,
+    whole_number,
+)
+from services.money import format_cents, from_cents, parse_cash
+from services.refunds import get_sale
+from services.sales_totals import read_sales, summarize_sales
+from services.settings import get_settings, tax_rate
+from services.transaction_history import query_transactions
 from services.transaction_service import complete_transaction
+from settings_routes import bp as settings_blueprint
 
 app = Flask(__name__)
+
+app.register_blueprint(pos_blueprint)
+app.register_blueprint(business_blueprint)
+app.register_blueprint(purchasing_blueprint)
+app.register_blueprint(customers_blueprint)
+app.register_blueprint(alerts_blueprint)
+app.register_blueprint(settings_blueprint)
 app.register_blueprint(auth_blueprint)
+app.register_blueprint(analytics_blueprint)
+app.register_blueprint(inventory_blueprint)
+app.register_blueprint(refund_blueprint)
+
+_trusted_hosts = [host.strip() for host in os.environ.get('TCCP_TRUSTED_HOSTS', '').split(',') if host.strip()]
+if not _trusted_hosts and os.environ.get('TCCP_ENV') == 'production':
+    _trusted_hosts = ['localhost', '127.0.0.1', '[::1]']
+
+def environment_flag(name, default):
+    """Reject misspelled security flags instead of enabling writes accidentally."""
+    value = os.environ.get(name, default)
+    if value not in ("0", "1"):
+        raise RuntimeError(f"{name} must be 0 or 1.")
+    return value == "1"
+
+
+if os.environ.get("TCCP_ENV", "development") not in ("development", "testing", "production"):
+    raise RuntimeError("TCCP_ENV must be development, testing, or production.")
+
 
 app.secret_key = os.environ.get("TCCP_SECRET_KEY") or secrets.token_hex(32)
 app.config.update(
@@ -45,24 +94,34 @@ app.config.update(
     SESSION_COOKIE_SAMESITE="Lax",
     SESSION_COOKIE_SECURE=os.environ.get("TCCP_ENV") == "production",
     MAX_CONTENT_LENGTH=64 * 1024,
+    MAX_FORM_MEMORY_SIZE=64 * 1024,
+    MAX_FORM_PARTS=1100,
+    TRUSTED_HOSTS=_trusted_hosts or None,
     PERMANENT_SESSION_LIFETIME=timedelta(hours=8),
     SESSION_REFRESH_EACH_REQUEST=False,
-    REGISTRATION_ENABLED=os.environ.get('TCCP_ALLOW_REGISTRATION', '1') == '1',
-    TRUSTED_HOSTS=[host.strip() for host in os.environ.get('TCCP_TRUSTED_HOSTS', '').split(',') if host.strip()] or None,
-    DEMO_READ_ONLY=os.environ.get("TCCP_READ_ONLY", "1" if os.environ.get("TCCP_ENV") == "production" else "0") == "1",
+    DEMO_READ_ONLY=environment_flag("TCCP_READ_ONLY", "1" if os.environ.get("TCCP_ENV") == "production" else "0"),
+    REGISTRATION_ENABLED=environment_flag("TCCP_ALLOW_REGISTRATION", "0" if os.environ.get("TCCP_ENV") == "production" else "1"),
 )
-if os.environ.get("TCCP_ENV") == "production" and len(os.environ.get("TCCP_SECRET_KEY", "")) < 32:
+if os.environ.get("TCCP_ENV") == "production" and len(os.environ.get("TCCP_SECRET_KEY", "").strip()) < 32:
     raise RuntimeError("Production requires TCCP_SECRET_KEY of at least 32 characters.")
 if os.environ.get("TCCP_ENV") == "production" and not os.path.isabs(os.environ.get("TCCP_DB_PATH", "")):
     raise RuntimeError("Production requires an absolute persistent TCCP_DB_PATH.")
 if os.environ.get("TCCP_ENV") == "production":
     from contextlib import closing
     from pathlib import Path
+    if Path(os.environ["TCCP_DB_PATH"]).resolve().is_relative_to(Path(app.static_folder).resolve()):
+        raise RuntimeError("Production database must be outside the public static directory.")
     try:
         with closing(sqlite3.connect(Path(os.environ["TCCP_DB_PATH"]).resolve().as_uri() + "?mode=ro", uri=True)) as startup_db:
-            if startup_db.execute("SELECT 1 FROM schema_migrations WHERE version=14").fetchone() is None:
+            startup_db.execute('PRAGMA foreign_keys=ON')
+            if startup_db.execute("SELECT 1 FROM schema_migrations WHERE version=27").fetchone() is None:
                 raise RuntimeError("Run the explicit database migration before production startup.")
-    except sqlite3.Error:
+            from database.validation import validate_integrity, validate_schema
+            validate_schema(startup_db, require_current=True)
+            validate_integrity(startup_db)
+            if os.name == 'posix' and Path(os.environ['TCCP_DB_PATH']).stat().st_mode & 0o077:
+                raise RuntimeError('Production database must have private file permissions (0600).')
+    except (sqlite3.Error, ValueError):
         raise RuntimeError("Production requires an existing database migrated with manage.py init.") from None
 
 
@@ -74,6 +133,7 @@ def csrf_token():
 
 
 app.jinja_env.globals["csrf_token"] = csrf_token
+app.jinja_env.filters["money"] = format_cents
 
 
 @app.before_request
@@ -81,7 +141,8 @@ def protect_writes():
     g.user = None
     g.store = None
     g.is_demo = False
-    public = {'static', 'auth.login', 'auth.register', 'auth.demo', 'auth.logout'}
+    unsafe = request.method not in ('GET', 'HEAD', 'OPTIONS')
+    public = {'static', 'auth.login', 'auth.register', 'auth.demo', 'auth.logout', 'auth.stores'}
     if request.endpoint == 'static':
         return None
     identity = load_identity(session.get('login_token'))
@@ -99,7 +160,7 @@ def protect_writes():
         if store:
             g.store = dict(store)
             g.is_demo = True
-    if request.method == 'POST' and request.endpoint not in public and app.config['DEMO_READ_ONLY']:
+    if unsafe and request.endpoint not in public and app.config['DEMO_READ_ONLY']:
         abort(403, description='This deployment is read-only.')
     if request.endpoint not in public and request.endpoint is not None and g.store is None:
         if request.path.startswith('/api/'):
@@ -110,14 +171,27 @@ def protect_writes():
     if g.store:
         context = f"{g.user['id'] if g.user else 'demo'}:{g.store['id']}"
         if session.get('cart_context') != context:
-            for key in ('sale_cart', 'checkout_token', 'last_receipt_id', 'last_receipt'):
+            for key in ('sale_cart', 'sale_customer_id', 'sale_discount', 'sale_notes', 'held_sale_id', 'held_claim', 'checkout_token', 'last_receipt_id', 'last_receipt'):
                 session.pop(key, None)
             session['cart_context'] = context
-    if request.method == "POST":
+    if len(request.query_string) > 8192:
+        abort(414, description='The query is too long. Use shorter filters.')
+    if any(len(request.args.getlist(key)) != 1 for key in request.args):
+        abort(400, description='Duplicate query parameters are not supported.')
+    if unsafe:
+        # All current mutations are HTML form endpoints, not JSON APIs.
+        if request.mimetype not in ('application/x-www-form-urlencoded', 'multipart/form-data', ''):
+            abort(415, description='Submit this action using its HTML form.')
+        if request.files or any(len(request.form.getlist(key)) != 1 for key in request.form):
+            abort(400, description='Duplicate form fields and file uploads are not supported.')
         if g.is_demo and request.endpoint not in public:
             abort(403, description="This public demo is read-only.")
         expected = session.get("csrf_token", "")
         submitted = request.form.get("csrf_token", "")
+        header_token = request.headers.get('X-CSRF-Token', '')
+        if header_token and submitted and header_token != submitted:
+            abort(400, description='Conflicting form tokens. Reload and retry.')
+        submitted = header_token or submitted
         if not expected or not hmac.compare_digest(expected.encode("utf-8"), submitted.encode("utf-8")):
             abort(400, description="Form expired. Refresh the page and try again.")
 
@@ -125,7 +199,17 @@ def protect_writes():
 @app.errorhandler(sqlite3.Error)
 def database_error(error):
     app.logger.error("Database operation failed (%s)", type(error).__name__)
-    return render_template("error.html", message="The database is unavailable. Please retry shortly."), 503
+    return render_template("error.html", message="The database is unavailable. Please retry shortly.", status_code=503), 503
+
+
+@app.errorhandler(Exception)
+def safe_unhandled_error(error):
+    if isinstance(error, HTTPException):
+        return error
+    if app.debug and os.environ.get('TCCP_ENV') != 'production':
+        raise error
+    app.logger.error('Unhandled request failure at %s (%s)', request.endpoint or 'unmatched', type(error).__name__)
+    return render_template('error.html', message='An unexpected error occurred. Please refresh and retry.', status_code=500), 500
 
 
 @app.errorhandler(SecurityError)
@@ -136,23 +220,66 @@ def invalid_host(error):
 
 @app.errorhandler(500)
 def unexpected_error(error):
-    return render_template("error.html", message="An unexpected error occurred. Please refresh and retry."), 500
+    return render_template("error.html", message="An unexpected error occurred. Please refresh and retry.", status_code=500), 500
 
 
+@app.errorhandler(409)
+@app.errorhandler(414)
+@app.errorhandler(415)
+@app.errorhandler(401)
+@app.errorhandler(405)
+@app.errorhandler(429)
 @app.errorhandler(400)
 @app.errorhandler(403)
 @app.errorhandler(413)
 def request_error(error):
-    return render_template("error.html", message=error.description), error.code
+    response = error.get_response()
+    # Invalid hosts have no URL adapter; a template calling url_for would fail.
+    if error.code == 400:
+        try:
+            request.host
+        except SecurityError:
+            response.set_data('The request host is not permitted.')
+            response.mimetype = 'text/plain'
+            return response
+    response.set_data(render_template("error.html", message=error.description, status_code=error.code))
+    response.content_type = "text/html; charset=utf-8"
+    return response
+
+
+@app.context_processor
+def store_preferences():
+    if not getattr(g, "store", None):
+        return {}
+    try:
+        preferences = get_settings()
+    except (sqlite3.Error, ValueError):
+        # Error pages must render even when settings storage is unavailable.
+        # Financial services still fail closed; this supplies no tax fallback.
+        preferences = None
+    return {"store_preferences": preferences, "business_timezone": BUSINESS_TIMEZONE}
+
+
+@app.context_processor
+def notification_context():
+    if not getattr(g, 'store', None):
+        return {}
+    from services.alerts import notification_summary
+    try:
+        return {'notifications': notification_summary()}
+    except sqlite3.Error:
+        # Error templates must still render when the database is unavailable.
+        return {'notifications': None}
 
 
 @app.after_request
 def security_headers(response):
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=(), payment=()"
     response.headers["Referrer-Policy"] = "same-origin"
     response.headers["Cache-Control"] = "no-store, private"
-    response.headers['Content-Security-Policy'] = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"
+    response.headers['Content-Security-Policy'] = "default-src 'self'; script-src 'self'; script-src-attr 'none'; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; connect-src 'self'; worker-src 'none'"
     if os.environ.get('TCCP_ENV') == 'production':
         response.headers['Strict-Transport-Security'] = 'max-age=31536000'
 
@@ -165,7 +292,7 @@ def get_inventory_summary(products):
         "total_products": len(products),
         "low_stock_count": sum(
             1 for product in products
-            if 0 < product["quantity"] <= 5
+            if stock_status(product) == "low"
         ),
         "out_of_stock_count": sum(
             1 for product in products
@@ -202,7 +329,7 @@ def read_product_form():
         raise ValueError("Price can have no more than two decimal places.")
 
     try:
-        quantity = int(quantity_text)
+        quantity = whole_number(quantity_text)
     except (ValueError, TypeError):
         raise ValueError("Quantity must be a whole number.") from None
 
@@ -213,72 +340,14 @@ def read_product_form():
 
 
 def get_sale_data():
-    """Build the current sale from current database product data."""
-    saved_cart = session.get("sale_cart", {})
-    if not isinstance(saved_cart, dict):
-        saved_cart = {}
-    items = []
-    unavailable_items = []
-    subtotal_cents = 0
-
-    for raw_product_id, raw_quantity in saved_cart.items():
-        try:
-            product_id = int(raw_product_id)
-            quantity = int(raw_quantity)
-        except (TypeError, ValueError):
-            unavailable_items.append("An invalid cart entry")
-            continue
-
-        if not 0 < quantity <= 1_000_000:
-            unavailable_items.append(f"Product #{product_id}")
-            continue
-
-        product = find_product_by_id(product_id)
-        if product is None:
-            unavailable_items.append(f"Product #{product_id}")
-            continue
-
-        price_cents = product["price_cents"]
-        line_total_cents = price_cents * quantity
-        subtotal_cents += line_total_cents
-
-        items.append({
-            "product": product,
-            "quantity": quantity,
-            "price_cents": price_cents,
-            "line_total_cents": line_total_cents,
-            "available_quantity": product["quantity"],
-            "stock_ok": quantity <= product["quantity"],
-        })
-
-    tax_cents = calculate_tax_cents(subtotal_cents, TAX_RATE)
-    total_cents = subtotal_cents + tax_cents
-
-    return {
-        "items": items,
-        "unavailable_items": unavailable_items,
-        "subtotal_cents": subtotal_cents,
-        "tax_cents": tax_cents,
-        "total_cents": total_cents,
-        "tax_rate_percent": TAX_RATE * 100,
-        "has_stock_problem": (
-            bool(unavailable_items)
-            or any(not item["stock_ok"] for item in items)
-        ),
-    }
+    from services.pos_cart import price_cart
+    return dict(price_cart(session.get('sale_cart', {}), session.get('sale_customer_id'), session.get('sale_discount')),
+                order_notes=session.get('sale_notes',''))
 
 
 def parse_quantity(value):
     """Parse a safe, positive whole-number quantity."""
-    try:
-        quantity = int(value)
-    except (TypeError, ValueError):
-        raise ValueError("Quantity must be a whole number.") from None
-
-    if not 1 <= quantity <= 1_000_000:
-        raise ValueError("Quantity must be between 1 and 1,000,000.")
-
-    return quantity
+    return whole_number(value, 1)
 
 
 def parse_iso_date(value):
@@ -325,17 +394,13 @@ def dashboard():
 
     conn = get_db_connection()
     try:
-        today_summary = conn.execute(
-            """
-            SELECT
-                COALESCE(SUM(total_cents), 0) AS today_sales_cents,
-                COUNT(*) AS today_transaction_count
-            FROM transactions
-            WHERE store_id=authorized_store_id() AND date(timestamp) = ?
-            """,
-            (today.isoformat(),),
-        ).fetchone()
-
+        conn.execute("BEGIN")
+        try:
+            week_sales = read_sales(conn, start_date.isoformat()+' 00:00:00', (today+timedelta(days=1)).isoformat()+' 00:00:00')
+        except ReportLimitError as error:
+            abort(413,description=str(error))
+        totals = summarize_sales([row for row in week_sales if row['timestamp'][:10]==today.isoformat()])
+        today_summary = {'today_sales_cents':totals['total_revenue_cents'], 'today_transaction_count':totals['transaction_count']}
         recent_rows = conn.execute(
             """
             SELECT id, timestamp, total_cents, payment_method
@@ -346,20 +411,17 @@ def dashboard():
             """
         ).fetchall()
 
-        daily_rows = conn.execute(
-            """
-            SELECT
-                date(timestamp) AS sale_date,
-                COUNT(*) AS transaction_count,
-                COALESCE(SUM(total_cents), 0) AS sales_cents
-            FROM transactions
-            WHERE store_id=authorized_store_id() AND date(timestamp) >= ?
-              AND date(timestamp) <= ?
-            GROUP BY date(timestamp)
-            ORDER BY sale_date ASC
-            """,
-            (start_date.isoformat(), today.isoformat()),
-        ).fetchall()
+        daily = {}
+        for row in week_sales:
+            key = row['timestamp'][:10]
+            bucket = daily.setdefault(key, {'sale_date':key,'transaction_count':0,'sales_cents':0})
+            bucket['sales_cents'] += row['total_cents']
+            bucket['transaction_count'] += 1
+        daily_rows = list(daily.values())
+        refund_rows = conn.execute("SELECT total_cents FROM refunds WHERE store_id=authorized_store_id() AND business_date=? ORDER BY id LIMIT 10001", (today.isoformat(),)).fetchall()
+        if len(refund_rows) > 10000:
+            abort(413, description='Narrow reporting to at most 10,000 refunds.')
+        today_refunded = sum(row['total_cents'] for row in refund_rows)
     finally:
         conn.close()
 
@@ -386,34 +448,61 @@ def dashboard():
             ),
         })
 
+    from services.dashboard_presentation import dashboard_report
+    try:
+        dashboard_data = dashboard_report(request.args.to_dict())
+    except ReportLimitError as error:
+        return render_template("error.html", message=str(error)), 413
+    except ValueError as error:
+        return render_template("error.html", message=str(error)), 400
     return render_template(
         "dashboard.html",
+        **dashboard_data,
         products=products,
-        tax_rate=TAX_RATE,
+        tax_rate=tax_rate(),
         **summary,
         today_sales_cents=today_summary["today_sales_cents"],
         today_transaction_count=today_summary["today_transaction_count"],
+        today_refunded_cents=today_refunded,
+        today_net_sales_cents=today_summary["today_sales_cents"]-today_refunded,
         recent_transactions=recent_rows,
         sales_chart=sales_chart,
+        low_stock_products=query_inventory(inventory_filters({'status':'low'}))['products'][:10],
+        out_of_stock_products=query_inventory(inventory_filters({'status':'out'}))['products'][:10],
     )
 
 
 @app.route("/inventory")
 def inventory():
-    search_term = request.args.get("q", "").strip()
-    products = (
-        search_active_products(search_term)
-        if search_term
-        else list_active_products()
-    )
-    summary = get_inventory_summary(products)
+    try:
+        filters=inventory_filters(request.args)
+        data=query_inventory(filters)
+    except ValueError as error:
+        return render_template('error.html',message=str(error)),400
+    return render_template('inventory.html',filters=filters,categories=list_categories(),search_term=filters['q'],
+                           pagination=pagination_links('inventory',filters,data),**data)
 
-    return render_template(
-        "inventory.html",
-        products=products,
-        search_term=search_term,
-        **summary,
-    )
+
+@app.context_processor
+def ui_context():
+    # Presentation only. Routes and services remain the authorization boundary.
+    return {'ui_can_write': bool(getattr(g, 'user', None) and getattr(g, 'store', None)
+                                and not getattr(g, 'is_demo', False)
+                                and not app.config['DEMO_READ_ONLY'])}
+
+
+@app.context_processor
+def product_form_context():
+    return {'categories':list_categories()} if request.endpoint in ('add_product','edit_product') and getattr(g,'store',None) else {}
+
+
+def product_metadata(edit=False):
+    default=UNSET if edit else None
+    return {'category_id':request.form.get('category_id',default), 'sku':request.form.get('sku',default),
+            'low_stock_threshold':request.form.get('low_stock_threshold',default)}
+
+
+app.jinja_env.globals['stock_status']=stock_status
 
 
 @app.route("/products/new", methods=["GET", "POST"])
@@ -421,9 +510,9 @@ def add_product():
     if request.method == "POST":
         try:
             name, price, quantity = read_product_form()
-            create_product(name, price, quantity)
-        except ValueError as error:
-            flash(str(error), "error")
+            create_product(name, price, quantity, **product_metadata())
+        except (ValueError, sqlite3.IntegrityError) as error:
+            flash(str(error) if isinstance(error,ValueError) else "SKU is unavailable in this store.", "error")
             return render_template(
                 "product_form.html",
                 mode="create",
@@ -453,9 +542,11 @@ def edit_product(product_id):
     if request.method == "POST":
         try:
             name, price, quantity = read_product_form()
-            update_product_record(product_id, name, price, quantity)
-        except ValueError as error:
-            flash(str(error), "error")
+            update_product_record(product_id, name, price, quantity, **product_metadata(edit=True),
+                                  expected_quantity=request.form.get("expected_quantity"),
+                                  reason=request.form.get("reason","Stock corrected during product edit"))
+        except (ValueError, sqlite3.IntegrityError) as error:
+            flash(str(error) if isinstance(error,ValueError) else "SKU is unavailable in this store.", "error")
             return render_template(
                 "product_form.html",
                 mode="edit",
@@ -486,7 +577,8 @@ def update_quantity(product_id):
         quantity = int(request.form.get("quantity", "").strip())
         if not 0 <= quantity <= 1_000_000:
             raise ValueError
-        set_product_quantity(product_id, quantity)
+        set_product_quantity(product_id, quantity, expected_quantity=request.form.get("expected_quantity"),
+                             reason=request.form.get("reason","Quick inventory correction"))
     except ValueError:
         flash("Enter a whole-number quantity between 0 and 1,000,000.", "error")
         return redirect(url_for("inventory"))
@@ -523,25 +615,72 @@ def remove_product(product_id):
 @app.route("/sale")
 def sale():
     session.setdefault("checkout_token", secrets.token_urlsafe(32))
+    from services.pos_layout import get_layout
+    layout = get_layout()["config"]
+    favorite_filter = request.args.get("favorites", "")
+    if favorite_filter not in ("", "1"):
+        abort(400)
     search_term = request.args.get("q", "").strip()
-    products = (
-        search_active_products(search_term)
-        if search_term
-        else list_active_products()
-    )
+    try:
+        filters = inventory_filters(dict(request.args, active='active'))
+        product_data = query_inventory(filters, pos_layout=layout, favorites_only=favorite_filter=="1")
+    except ValueError as error:
+        abort(400, description=str(error))
+    products = product_data['products']
+    from services.customers import list_customers
+    try:
+        customer_results = list_customers({'q': request.args.get('customer_q', '')})
+    except ValueError as error:
+        abort(400, description=str(error))
 
+    categories = list_categories()
+    rank = {identifier:index for index,identifier in enumerate(layout['category_order'])}
+    categories.sort(key=lambda row:(rank.get(row['id'],len(rank)),row['name'].casefold(),row['id']))
+    pagination = pagination_links('sale',dict(filters,favorites=favorite_filter),product_data)
     return render_template(
         "sale.html",
         products=products,
+        customer_results=customer_results,
         search_term=search_term,
+        categories=categories,
+        pos_layout=layout,
+        favorite_filter=favorite_filter,
+        selected_category=request.args.get("category", ""),
+        pagination=pagination,
         **get_sale_data(),
     )
+
+
+@app.post("/sale/discount")
+def sale_discount():
+    if set(request.form) - {"csrf_token", "kind", "value"}:
+        abort(400)
+    from services.discounts import discount_amount
+
+    kind, value = request.form.get("kind", "none"), request.form.get("value", "")
+    if kind == "none":
+        value = ""
+    try:
+        data = get_sale_data()
+        discount_amount(
+            [
+                dict(price_cents=row["price_cents"], quantity=row["quantity"])
+                for row in data["items"]
+            ],
+            kind,
+            value,
+        )
+    except ValueError as error:
+        flash(str(error), "error")
+        return redirect(url_for("sale"))
+    session["sale_discount"] = dict(kind=kind, value=value)
+    return redirect(url_for("sale"))
 
 
 @app.route("/sale/add", methods=["POST"])
 def sale_add():
     try:
-        product_id = int(request.form.get("product_id", ""))
+        product_id = positive_id(request.form.get("product_id", ""))
         quantity_to_add = parse_quantity(request.form.get("quantity", "1"))
     except ValueError as error:
         flash(str(error) or "Choose a valid product and quantity.", "error")
@@ -589,10 +728,16 @@ def sale_update(product_id):
         return redirect(url_for("sale"))
 
     try:
-        quantity = int(request.form.get("quantity", ""))
+        quantity = whole_number(request.form.get("quantity", ""))
     except (TypeError, ValueError):
         flash("Enter a valid whole-number quantity.", "error")
         return redirect(url_for("sale"))
+
+    adjustment = request.form.get('adjust', '')
+    if adjustment:
+        if adjustment not in ('plus', 'minus'):
+            abort(400)
+        quantity = int(cart[key]) + (1 if adjustment == 'plus' else -1)
 
     if quantity == 0:
         cart.pop(key, None)
@@ -636,6 +781,13 @@ def sale_remove(product_id):
 
 @app.route("/sale/cancel", methods=["POST"])
 def sale_cancel():
+    if session.get('held_sale_id'):
+        from services.held_sales import cancel_claim
+        cancel_claim(session['held_sale_id'],session.get('held_claim'))
+    for key in ('sale_notes','held_sale_id','held_claim'):
+        session.pop(key,None)
+    session.pop("sale_discount", None)
+    session.pop("sale_customer_id", None)
     session.pop("checkout_token", None)
     session.pop("sale_cart", None)
     flash("Sale canceled. Inventory has not been changed.", "success")
@@ -704,18 +856,28 @@ def sale_checkout():
             payment_method,
             checkout_token=token,
             cash_received_cents=cash_received_cents,
+            customer_id=session.get("sale_customer_id"),
+            discount_kind=sale_data["discount"]["kind"],
+            discount_value=sale_data["discount"]["value"],
+            order_notes=session.get("sale_notes", ""),
+            held_sale_id=session.get("held_sale_id"),
+            held_claim=session.get("held_claim"),
         )
-    except ValueError as error:
+    except (ValueError, LookupError) as error:
         flash(f"Checkout could not be completed: {error}", "error")
         return redirect(url_for("sale"))
-    except sqlite3.Error:
-        app.logger.exception("SQLite error while completing checkout")
+    except sqlite3.Error as error:
+        app.logger.error("Database operation failed during simulated checkout (%s)", type(error).__name__)
         flash(
             "The sale could not be saved. No partial transaction was committed.",
             "error",
         )
         return redirect(url_for("sale"))
 
+    session.pop("sale_discount", None)
+    session.pop("sale_customer_id", None)
+    for key in ("sale_notes","held_sale_id","held_claim"):
+        session.pop(key,None)
     session["last_receipt_id"] = transaction_id
     session.pop("last_receipt", None)
     session.pop("checkout_token", None)
@@ -726,24 +888,30 @@ def sale_checkout():
 @app.route("/receipt")
 def receipt():
     transaction_id = session.get("last_receipt_id")
-    if not isinstance(transaction_id, int) or not 0 < transaction_id <= 9223372036854775807:
+    if not isinstance(transaction_id, int):
         return redirect(url_for("sale"))
-    conn = get_db_connection()
+    return transaction_receipt(transaction_id)
+
+
+@app.get("/transactions/<int:transaction_id>/receipt")
+def transaction_receipt(transaction_id):
     try:
-        row = conn.execute("SELECT * FROM transactions WHERE store_id=authorized_store_id() AND id=?", (transaction_id,)).fetchone()
-        if row is None:
-            return redirect(url_for("sale"))
-        receipt_data = dict(row)
-        receipt_data["items"] = [dict(item) for item in conn.execute(
-            "SELECT product_name AS name, quantity, price_cents AS unit_price_cents, quantity*price_cents AS line_total_cents FROM transaction_items WHERE store_id=authorized_store_id() AND transaction_id=? ORDER BY id", (transaction_id,))]
-    finally:
-        conn.close()
-    receipt_data["transaction_id"] = row["id"]
-    receipt_data["subtotal_cents"] = sum(item["line_total_cents"] for item in receipt_data["items"])
-    receipt_data["tax_cents"] = row["total_cents"] - receipt_data["subtotal_cents"]
-    receipt_data["tax_rate_percent"] = Decimal(row["tax_rate_percent"] or "0")
-    receipt_data["change_cents"] = None if row["cash_received_cents"] is None else row["cash_received_cents"] - row["total_cents"]
-    return render_template("receipt.html", receipt=receipt_data)
+        state = get_sale(transaction_id)
+    except LookupError:
+        return redirect(url_for('sale'))
+    except ReportLimitError as error:
+        abort(413, description=str(error))
+    row = state['transaction']
+    receipt_data = dict(row)
+    from services.settings import read_receipt_snapshot
+    receipt_data['profile'] = read_receipt_snapshot(receipt_data.get('receipt_snapshot'))
+    receipt_data['items'] = [dict(name=item['product_name'], quantity=item['quantity'], unit_price_cents=item['price_cents'], line_total_cents=item['line_total_cents']) for item in state['items']]
+    receipt_data['transaction_id'] = row['id']
+    receipt_data['subtotal_cents'] = sum(item['line_total_cents'] for item in state['items'])
+    receipt_data['tax_cents'] = row['total_cents']-receipt_data['subtotal_cents']
+    receipt_data['tax_verified'] = state['eligible']
+    receipt_data['change_cents'] = None if row['cash_received_cents'] is None else row['cash_received_cents']-row['total_cents']
+    return render_template('receipt.html', receipt=receipt_data, refund_state=state)
 
 
 # -------------------------------------------------------------------
@@ -752,140 +920,31 @@ def receipt():
 
 @app.route("/transactions")
 def transactions():
-    search_text = request.args.get("q", "").strip()
-    payment_method = request.args.get("payment_method", "").strip().title()
-    start_text = request.args.get("start_date", "").strip()
-    end_text = request.args.get("end_date", "").strip()
-
-    if payment_method not in ("", "Cash", "Card"):
-        payment_method = ""
-
-    start_date = parse_iso_date(start_text) if start_text else None
-    end_date = parse_iso_date(end_text) if end_text else None
-
-    if start_text and start_date is None:
-        flash("The start date is invalid. Use the date picker.", "error")
-    if end_text and end_date is None:
-        flash("The end date is invalid. Use the date picker.", "error")
-
-    if start_date and end_date and start_date > end_date:
-        flash("Start date cannot be later than end date.", "error")
-        start_date = None
-        end_date = None
-
-    conditions = ["store_id=authorized_store_id()"]
-    params = []
-
-    if search_text:
-        if search_text.isdecimal():
-            conditions.append("id = ?")
-            params.append(int(search_text) if len(search_text) <= 19 and int(search_text) <= 9223372036854775807 else -1)
-        else:
-            conditions.append("(CAST(id AS TEXT) LIKE ? OR timestamp LIKE ?)")
-            params.extend([f"%{search_text}%", f"%{search_text}%"])
-
-    if payment_method:
-        conditions.append("payment_method = ?")
-        params.append(payment_method)
-
-    if start_date:
-        conditions.append("date(timestamp) >= ?")
-        params.append(start_date.isoformat())
-
-    if end_date:
-        conditions.append("date(timestamp) <= ?")
-        params.append(end_date.isoformat())
-
-    where_clause = " AND ".join(conditions) if conditions else "1 = 1"
-
-    conn = get_db_connection()
     try:
-        summary = conn.execute(
-            f"""
-            SELECT
-                COUNT(*) AS transaction_count,
-                COALESCE(SUM(total_cents), 0) AS total_cents
-            FROM transactions
-            WHERE store_id=authorized_store_id() AND {where_clause}
-            """,
-            params,
-        ).fetchone()
-
-        rows = conn.execute(
-            f"""
-            SELECT id, timestamp, total_cents, payment_method
-            FROM transactions
-            WHERE store_id=authorized_store_id() AND {where_clause}
-            ORDER BY timestamp DESC, id DESC
-            LIMIT 200
-            """,
-            params,
-        ).fetchall()
-    finally:
-        conn.close()
-
-    return render_template(
-        "transactions.html",
-        transactions=rows,
-        search_text=search_text,
-        payment_method=payment_method,
-        start_date=start_text if start_date else "",
-        end_date=end_text if end_date else "",
-        transaction_count=summary["transaction_count"],
-        total_cents=summary["total_cents"],
-    )
+        data = query_transactions(request.args)
+    except ReportLimitError as error:
+        abort(413, description=str(error))
+    except ValueError as error:
+        abort(400, description=str(error))
+    filters = dict(request.args)
+    filters.pop('page', None)
+    pagination = pagination_links('transactions', filters, data)
+    return render_template('transactions.html', **data, pagination=pagination)
 
 
 @app.route("/transactions/<int:transaction_id>")
 def transaction_detail(transaction_id):
     if transaction_id > 9223372036854775807:
         abort(404)
-    conn = get_db_connection()
     try:
-        transaction = conn.execute(
-            """
-            SELECT id, timestamp, total_cents, payment_method
-            FROM transactions
-            WHERE store_id=authorized_store_id() AND id = ?
-            """,
-            (transaction_id,),
-        ).fetchone()
-
-        if transaction is None:
-            transaction_items = []
-        else:
-            transaction_items = conn.execute(
-                """
-                SELECT
-                    product_name,
-                    quantity,
-                    price_cents,
-                    quantity * price_cents AS line_total_cents
-                FROM transaction_items
-                WHERE store_id=authorized_store_id() AND transaction_id = ?
-                ORDER BY rowid
-                """,
-                (transaction_id,),
-            ).fetchall()
-    finally:
-        conn.close()
-
-    if transaction is None:
-        flash(f"Transaction #{transaction_id} was not found.", "error")
-        return redirect(url_for("transactions"))
-
-    subtotal_cents = sum(
-        item["line_total_cents"] for item in transaction_items
-    )
-    tax_cents = transaction["total_cents"] - subtotal_cents
-
-    return render_template(
-        "transaction_detail.html",
-        transaction=transaction,
-        items=transaction_items,
-        subtotal_cents=subtotal_cents,
-        tax_cents=tax_cents,
-    )
+        state = get_sale(transaction_id)
+    except LookupError:
+        flash(f'Transaction #{transaction_id} was not found.', 'error')
+        return redirect(url_for('transactions'))
+    except ReportLimitError as error:
+        abort(413, description=str(error))
+    subtotal = sum(item['line_total_cents'] for item in state['items'])
+    return render_template('transaction_detail.html', transaction=state['transaction'], items=state['items'], subtotal_cents=subtotal, tax_cents=state['transaction']['total_cents']-subtotal, refund_state=state)
 
 
 # -------------------------------------------------------------------
@@ -894,105 +953,27 @@ def transaction_detail(transaction_id):
 
 @app.route("/reports")
 def reports():
-    today = business_now().date()
-    default_start = today - timedelta(days=29)
-
-    start_text = request.args.get(
-        "start_date", default_start.isoformat()
-    ).strip()
-    end_text = request.args.get(
-        "end_date", today.isoformat()
-    ).strip()
-
-    start_date = parse_iso_date(start_text)
-    end_date = parse_iso_date(end_text)
-
-    if start_date is None or end_date is None:
-        flash("Choose valid start and end dates.", "error")
-        start_date = default_start
-        end_date = today
-    elif start_date > end_date:
-        flash("Start date cannot be later than end date.", "error")
-        start_date = default_start
-        end_date = today
-
-    start_value = start_date.isoformat()
-    end_value = end_date.isoformat()
-
-    conn = get_db_connection()
+    today=business_now().date()
     try:
-        overview = conn.execute(
-            """
-            SELECT
-                COUNT(*) AS transaction_count,
-                COALESCE(SUM(total_cents), 0) AS revenue_cents,
-                COALESCE(AVG(total_cents), 0) AS average_sale_cents
-            FROM transactions
-            WHERE store_id=authorized_store_id() AND date(timestamp) >= ?
-              AND date(timestamp) <= ?
-            """,
-            (start_value, end_value),
-        ).fetchone()
-
-        payment_rows = conn.execute(
-            """
-            SELECT
-                payment_method,
-                COUNT(*) AS transaction_count,
-                COALESCE(SUM(total_cents), 0) AS revenue_cents
-            FROM transactions
-            WHERE store_id=authorized_store_id() AND date(timestamp) >= ?
-              AND date(timestamp) <= ?
-            GROUP BY payment_method
-            ORDER BY revenue_cents DESC
-            """,
-            (start_value, end_value),
-        ).fetchall()
-
-        daily_rows = conn.execute(
-            """
-            SELECT
-                date(timestamp) AS sale_date,
-                COUNT(*) AS transaction_count,
-                COALESCE(SUM(total_cents), 0) AS revenue_cents
-            FROM transactions
-            WHERE store_id=authorized_store_id() AND date(timestamp) >= ?
-              AND date(timestamp) <= ?
-            GROUP BY date(timestamp)
-            ORDER BY sale_date DESC
-            """,
-            (start_value, end_value),
-        ).fetchall()
-
-        top_product_rows = conn.execute(
-            """
-            SELECT
-                ti.product_name,
-                SUM(ti.quantity) AS units_sold,
-                SUM(ti.quantity * ti.price_cents) AS revenue_cents
-            FROM transaction_items AS ti
-            JOIN transactions AS t
-              ON t.id = ti.transaction_id
-            WHERE t.store_id=authorized_store_id() AND ti.store_id=authorized_store_id() AND date(t.timestamp) >= ?
-              AND date(t.timestamp) <= ?
-            GROUP BY ti.product_id, ti.product_name
-            ORDER BY units_sold DESC, revenue_cents DESC
-            LIMIT 10
-            """,
-            (start_value, end_value),
-        ).fetchall()
-    finally:
-        conn.close()
-
-    return render_template(
-        "reports.html",
-        start_date=start_value,
-        end_date=end_value,
-        overview=overview,
-        payment_rows=payment_rows,
-        daily_rows=daily_rows,
-        top_product_rows=top_product_rows,
-    )
+        filters=resolve_filters(request.args,today=today)
+    except ValueError as error:
+        # Preserve the existing Reports page's forgiving date-picker behavior.
+        # The new /analytics and downloads reject malformed ranges with 400.
+        flash(str(error),'error')
+        filters=resolve_filters({},today=today)
+    try:
+        data=build_analytics(filters)
+    except ReportLimitError as error:
+        return render_template('error.html',message=str(error)),413
+    overview=dict(data['summary'],average_sale_cents=data['summary']['average_order_cents'])
+    daily_filters=resolve_filters(dict(filters.query_args(),group='daily'))
+    # The shared service's daily series is already available when Reports uses
+    # the default daily grouping; only aggregate again for an explicit grouping.
+    daily=data['series'] if filters.group=='daily' else build_analytics(daily_filters)['series']
+    return render_template('reports.html', start_date=filters.start.isoformat(),end_date=filters.end.isoformat(),
+        overview=overview,payment_rows=data['payment_rows'],
+        daily_rows=[dict(row,sale_date=row['period_start']) for row in reversed(daily) if row['transaction_count']],
+        top_product_rows=[dict(row,revenue_cents=row['item_sales_cents']) for row in data['products']])
 
 
 @app.errorhandler(404)

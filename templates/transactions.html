@@ -14,9 +14,9 @@
         </p>
     </div>
 
-    <a class="primary-button" href="{{ url_for('sale') }}">
+    {% if ui_can_write %}<a class="primary-button" href="{{ url_for('sale') }}">
         + New sale
-    </a>
+    </a>{% endif %}
 </section>
 
 <section class="stats-grid stats-grid-2">
@@ -29,7 +29,7 @@
     <article class="stat-card">
         <span class="stat-label">Matching sales total</span>
         <strong class="stat-value">
-            ${{ "%.2f"|format(total_cents / 100) }}
+            {{ total_cents|money }}
         </strong>
         <span class="stat-footnote">Combined transaction totals</span>
     </article>
@@ -39,7 +39,7 @@
     <div class="panel-header">
         <div>
             <h3>All transactions</h3>
-            <p class="muted">Up to 200 matching records are displayed.</p>
+            <p class="muted">20 sales per page. Original totals remain unchanged after refunds.</p>
         </div>
     </div>
 
@@ -84,6 +84,8 @@
             >
         </div>
 
+        <div class="filter-field"><label for="tx-status">Status</label><select id="tx-status" name="status">{% for value,label in [('', 'All statuses'),('completed','Completed (no refunds)'),('partial','Partially refunded'),('refunded','Fully refunded')] %}<option value="{{ value }}" {% if status==value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+        <div class="filter-field"><label for="tx-sort">Sort</label><select id="tx-sort" name="sort">{% for value,label in [('newest','Newest first'),('oldest','Oldest first'),('total_desc','Highest total'),('total_asc','Lowest total')] %}<option value="{{ value }}" {% if sort==value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
         <div class="filter-actions">
             <button class="primary-button" type="submit">Apply filters</button>
             <a class="secondary-button" href="{{ url_for('transactions') }}">Clear</a>
@@ -91,15 +93,15 @@
     </form>
 
     {% if transactions %}
-        <div class="table-wrap">
+        <div class="table-wrap" role="region" aria-label="Scrollable data table" tabindex="0">
             <table class="data-table">
                 <thead>
                     <tr>
-                        <th>Transaction</th>
-                        <th>Date and time</th>
-                        <th>Payment</th>
-                        <th class="text-right">Total</th>
-                        <th></th>
+                        <th scope="col">Transaction</th>
+                        <th scope="col">Date and time</th>
+                        <th scope="col">Payment</th><th scope="col">Status / refunds</th>
+                        <th class="text-right" scope="col">Total</th>
+                        <th scope="col"></th>
                     </tr>
                 </thead>
                 <tbody>
@@ -117,9 +119,10 @@
                                 {% endif %}
                             </span>
                         </td>
+                        <td><span class="status-badge status-{{ transaction.status }}">{{ 'Partially refunded' if transaction.status=='partial' else ('Fully refunded' if transaction.status=='refunded' else 'Completed') }}</span><small class="table-id">Refunded {{ transaction.refunded_cents|money }}</small></td>
                         <td class="text-right">
                             <strong>
-                                ${{ "%.2f"|format(transaction["total_cents"] / 100) }}
+                                {{ transaction["total_cents"]|money }}
                             </strong>
                         </td>
                         <td class="text-right">
@@ -137,15 +140,16 @@
         </div>
 
         <p class="table-footnote">
-            Showing {{ transactions|length }} record(s), with a maximum of 200.
+            Showing {{ transactions|length }} record(s). Page {{ page }} of {{ pages }}.
         </p>
     {% else %}
         <div class="empty-state">
-            <span class="empty-state-icon">▧</span>
+            <span class="empty-state-icon" aria-hidden="true">▧</span>
             <h3>No transactions found</h3>
-            <p>Try changing your filters or complete a sale first.</p>
-            <a class="primary-button" href="{{ url_for('sale') }}">Start a sale</a>
+            <p>{{ 'Try changing your filters or complete a sale first.' if ui_can_write else 'Try changing your filters to browse recorded transactions.' }}</p>
+            {% if ui_can_write %}<a class="primary-button" href="{{ url_for('sale') }}">Start a sale</a>{% endif %}
         </div>
     {% endif %}
+<nav class="inventory-pagination" aria-label="Transaction pages">{% if pagination.previous %}<a class="secondary-button" href="{{ pagination.previous }}">Previous</a>{% endif %}<span>Page {{ page }} of {{ pages }}</span>{% if pagination.next %}<a class="secondary-button" href="{{ pagination.next }}">Next</a>{% endif %}</nav>
 </section>
 {% endblock %}

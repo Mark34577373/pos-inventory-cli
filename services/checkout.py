@@ -1,10 +1,11 @@
 # services/checkout.py
 import sqlite3
 
-from config import TAX_RATE, business_now
+from config import business_now
 from models.cart import Cart
 from services.inventory import find_product_by_id, find_products_by_ids
 from services.money import calculate_tax_cents, from_cents, parse_cash
+from services.settings import tax_rate
 from services.transaction_service import complete_transaction
 
 session_cart = Cart()
@@ -124,7 +125,7 @@ def checkout():
     if subtotal == 0:
         return False
 
-    tax = from_cents(calculate_tax_cents(int(subtotal * 100), TAX_RATE))
+    tax = from_cents(calculate_tax_cents(int(subtotal * 100), tax_rate()))
     total = subtotal + tax
 
     print("-------------------------")
@@ -202,7 +203,7 @@ def checkout():
         
     print("-----------------------------------")
     print("Subtotal".ljust(24) + f"${subtotal:.2f}".rjust(11))
-    print(f"Tax ({TAX_RATE*100:.2f}%)".ljust(24) + f"${tax:.2f}".rjust(11))
+    print("Tax recorded".ljust(24) + f"${tax:.2f}".rjust(11))
     print("-----------------------------------")
     print("TOTAL".ljust(24) + f"${total:.2f}".rjust(11))
     print("-----------------------------------")

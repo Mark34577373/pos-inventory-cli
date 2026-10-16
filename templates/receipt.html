@@ -5,6 +5,8 @@
 {% block page_heading %}Sale complete{% endblock %}
 
 {% block content %}
+{% if request.endpoint=='receipt' %}<p class="flash-message flash-success no-print" role="status">Simulated sale recorded successfully. Receipt #{{ receipt.transaction_id }} is ready to print.</p>{% endif %}
+{% if receipt.order_notes %}<section class="content-panel"><h2>Order notes</h2><p class="receipt-text">{{ receipt.order_notes }}</p></section>{% endif %}
 <section class="receipt-page">
     <div class="receipt-success">
         <span class="receipt-success-icon">✓</span>
@@ -17,7 +19,7 @@
     <article class="receipt-paper">
         <header class="receipt-header">
             <div class="receipt-brand-mark">T</div>
-            <h2>TCCP</h2>
+            {% if receipt.profile %}<h2>{{ receipt.profile.receipt_name }}</h2><p class="receipt-text">{{ receipt.profile.receipt_contact }}</p><p class="receipt-text">{{ receipt.profile.receipt_header }}</p>{% else %}<h2>Historical receipt</h2><p>Original business profile was not recorded.</p>{% endif %}
             <p>THE CREDIT CARD PROCESSOR</p>
             <div class="receipt-divider"></div>
             <h3>SALES RECEIPT</h3>
@@ -60,12 +62,12 @@
                     <strong>{{ item["name"] }}</strong>
                     <small>
                         {{ item["quantity"] }} ×
-                        ${{ "%.2f"|format(item["unit_price_cents"] / 100) }}
+                        {{ item["unit_price_cents"]|money }}
                     </small>
                 </div>
 
                 <strong>
-                    ${{ "%.2f"|format(item["line_total_cents"] / 100) }}
+                    {{ item["line_total_cents"]|money }}
                 </strong>
             </div>
             {% endfor %}
@@ -74,41 +76,42 @@
         <div class="receipt-divider"></div>
 
         <div class="receipt-totals">
+            {% if receipt.discount_cents %}<div><span>Original merchandise</span><strong>{{ (receipt.subtotal_cents+receipt.discount_cents)|money }}</strong></div><div><span>Before-tax discount</span><strong>−{{ receipt.discount_cents|money }}</strong></div>{% endif %}
             <div>
                 <span>Subtotal</span>
                 <strong>
-                    ${{ "%.2f"|format(receipt["subtotal_cents"] / 100) }}
+                    {{ receipt["subtotal_cents"]|money }}
                 </strong>
             </div>
 
             <div>
                 <span>
-                    Tax ({{ "%.2f"|format(receipt["tax_rate_percent"]) }}%)
+                    {{ 'Tax recorded' if receipt.tax_verified else 'Tax / reconciliation difference (unverified)' }}
                 </span>
                 <strong>
-                    ${{ "%.2f"|format(receipt["tax_cents"] / 100) }}
+                    {{ receipt["tax_cents"]|money }}
                 </strong>
             </div>
 
             <div class="receipt-total">
                 <span>Total paid</span>
                 <strong>
-                    ${{ "%.2f"|format(receipt["total_cents"] / 100) }}
+                    {{ receipt["total_cents"]|money }}
                 </strong>
             </div>
 
-            {% if receipt["payment_method"] == "Cash" %}
+            {% if receipt["payment_method"] == "Cash" and receipt["cash_received_cents"] is not none %}
             <div>
                 <span>Cash received</span>
                 <strong>
-                    ${{ "%.2f"|format(receipt["cash_received_cents"] / 100) }}
+                    {{ receipt["cash_received_cents"]|money }}
                 </strong>
             </div>
 
             <div>
                 <span>Change</span>
                 <strong>
-                    ${{ "%.2f"|format(receipt["change_cents"] / 100) }}
+                    {{ receipt["change_cents"]|money }}
                 </strong>
             </div>
             {% endif %}
@@ -116,9 +119,10 @@
 
         <div class="receipt-divider"></div>
 
-        <p class="receipt-thanks">Thank you for your purchase!</p>
+        <section aria-label="Refund information"><h3>{{ refund_state.status|title }}</h3><p>Total refunded: {{ refund_state.refunded_cents|money }} · Remaining sale amount: {{ (receipt.total_cents-refund_state.refunded_cents)|money }}</p>{% for refund in refund_state.history %}<p>Refund #{{ refund.id }} · {{ refund.recorded_at }} UTC · {{ refund.total_cents|money }} · {{ refund.reason }}</p>{% endfor %}{% if refund_state.count > 100 %}<p>Latest 100 refunds shown. Complete ledger available in analytics exports by refund date.</p>{% endif %}</section>
+        {% if receipt.profile %}<p class="receipt-text">{{ receipt.profile.receipt_footer }}</p><p class="receipt-thanks">{{ receipt.profile.thank_you }}</p>{% endif %}
         <p class="receipt-demo-note">
-            TCCP development demo · Not a payment processor
+            All payments and refunds are simulated. No real payment is processed.
         </p>
     </article>
 
@@ -126,14 +130,14 @@
         <button
             class="primary-button"
             type="button"
-            onclick="window.print()"
+            data-print
         >
             Print receipt
         </button>
 
-        <a class="secondary-button" href="{{ url_for('sale') }}">
+        {% if ui_can_write %}<a class="secondary-button" href="{{ url_for('sale') }}">
             Start another sale
-        </a>
+        </a>{% endif %}
 
         <a class="text-link" href="{{ url_for('dashboard') }}">
             Return to dashboard

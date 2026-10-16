@@ -11,8 +11,8 @@
     <p class="muted">
         The page may have moved or the address may be incorrect.
     </p>
-    <a class="primary-button" href="{{ url_for('dashboard') }}">
-        Return to dashboard →
+    <a class="primary-button" href="{{ url_for('dashboard') if g.store else url_for('auth.login') }}">
+        {{ 'Return to dashboard →' if g.store else 'Sign in →' }}
     </a>
 </section>
 {% endblock %}

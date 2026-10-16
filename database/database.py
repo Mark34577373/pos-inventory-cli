@@ -7,13 +7,38 @@ DB_FILE = os.environ.get("TCCP_DB_PATH") or os.path.join(
     "tccp.db",
 )
 
+class InventoryConnection(sqlite3.Connection):
+    """A connection carries audit metadata only for its own transaction."""
+
+
 def get_db_connection():
     """Establishes a connection to the SQLite database with row factory enabled."""
-    conn = sqlite3.connect(DB_FILE)
+    if str(DB_FILE) != ':memory:':
+        from pathlib import Path
+        path = Path(DB_FILE)
+        try:
+            descriptor = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        except FileExistsError:
+            pass
+        else:
+            os.close(descriptor)
+    conn = sqlite3.connect(DB_FILE, factory=InventoryConnection, timeout=5)
     from database.tenancy import current_store_id
     conn.create_function("authorized_store_id", 0, current_store_id)
+    from flask import g, has_request_context
+    conn.audit_context = {}
+    conn.create_function("audit_actor_id", 0, lambda: g.user['id'] if has_request_context() and getattr(g, 'user', None) else None)
+    conn.create_function("audit_type", 0, lambda: conn.audit_context.get('type', 'correction'))
+    conn.create_function("audit_reason", 0, lambda: conn.audit_context.get('reason', 'Stock correction by local client or maintenance'))
+    conn.create_function("audit_transaction_id", 0, lambda: conn.audit_context.get('transaction_id'))
+    conn.create_function("audit_purchase_receipt_id", 0, lambda: conn.audit_context.get("purchase_receipt_id"))
+    conn.create_function("audit_refund_id", 0, lambda: conn.audit_context.get("refund_id"))
     conn.row_factory = sqlite3.Row  # Allows accessing columns by name like dictionary keys
     conn.execute("PRAGMA foreign_keys = ON")
+    if conn.execute('PRAGMA foreign_keys').fetchone()[0] != 1:
+        conn.close()
+        raise RuntimeError('SQLite foreign-key enforcement is required.')
+    conn.execute('PRAGMA busy_timeout=5000')
     return conn
 
 
@@ -29,15 +54,45 @@ def _ensure_column(cursor, table, column_name, declaration):
     return True
 
 
-def initialize_database(seed=True):
+def initialize_database(seed=True, *, allow_missing_products=False):
     """Creates the necessary tables if they do not exist and seeds initial data."""
     from contextlib import closing
+
+    from flask import has_request_context
+
+    from database.validation import validate_integrity, validate_schema
+    if has_request_context():
+        raise PermissionError('Database migrations require a trusted local maintenance command.')
     with closing(get_db_connection()) as conn:
         with conn:
             conn.execute("BEGIN IMMEDIATE")
+            validate_schema(conn)
+            validate_integrity(conn, allow_missing_products=allow_missing_products)
             _initialize_schema(conn, seed)
             from database.migrations import migrate_identity
             migrate_identity(conn)
+            from database.inventory_migration import migrate_inventory
+            migrate_inventory(conn)
+            from database.analytics_migration import migrate_analytics
+            migrate_analytics(conn)
+            from database.refund_migration import migrate_refunds
+            migrate_refunds(conn)
+            from database.settings_migration import migrate_settings
+            migrate_settings(conn)
+            from database.advanced_analytics_migration import migrate_advanced_analytics
+            migrate_advanced_analytics(conn)
+            from database.alerts_migration import migrate_alerts
+            migrate_alerts(conn)
+            from database.retail_migration import migrate_retail
+            migrate_retail(conn)
+            from database.purchasing_migration import migrate_purchasing
+            migrate_purchasing(conn)
+            from database.expenses_migration import migrate_expenses
+            migrate_expenses(conn)
+            from database.pos_migration import migrate_pos
+            migrate_pos(conn)
+            validate_schema(conn, require_current=True)
+            validate_integrity(conn, allow_missing_products=allow_missing_products)
 
 
 def _initialize_schema(conn, seed):

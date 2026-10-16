@@ -1,3 +1,4 @@
 {% extends "base.html" %}
+{% block title %}Request unavailable | TCCP{% endblock %}
 {% block page_heading %}Unable to complete request{% endblock %}
-{% block content %}<section class="panel"><p>{{ message }}</p><a href="{{ url_for('dashboard') }}">Return to dashboard</a></section>{% endblock %}
+{% block content %}<section class="panel error-page"><p class="eyebrow">{{ status_code|default('REQUEST',true) }}</p><h2>Let's get you back on track</h2><div class="error-summary flash-message flash-error" tabindex="-1" role="alert"><p>{{ message }}</p></div><p class="muted">Check the form and your sign-in status. If a sale or refund was interrupted, review transaction history before retrying.</p><div class="form-actions"><a class="primary-button" href="{{ url_for('dashboard') if g.store else url_for('auth.login') }}">{{ 'Return to dashboard' if g.store else 'Sign in' }}</a>{% if g.store %}<a class="secondary-button" href="{{ url_for('transactions') }}">Review transactions</a>{% endif %}</div></section>{% endblock %}

@@ -5,6 +5,9 @@
 {% block page_heading %}Transaction details{% endblock %}
 
 {% block content %}
+{% if transaction.order_notes %}<section class="content-panel"><h2>Order notes</h2><p class="receipt-text">{{ transaction.order_notes }}</p></section>{% endif %}
+{% if transaction.discount_cents %}<p>Before-tax discount: {{ transaction.discount_cents|money }} · {{ transaction.discount_kind|title }} {{ transaction.discount_value }}</p>{% endif %}
+{% if transaction.customer_id %}<p>Customer at sale: <a href="{{ url_for('customers.detail',customer_id=transaction.customer_id) }}">{{ transaction.customer_name_snapshot }}</a></p>{% endif %}
 <div class="breadcrumb">
     <a href="{{ url_for('transactions') }}">Transactions</a>
     <span>/</span>
@@ -27,7 +30,7 @@
     <article class="stat-card">
         <span class="stat-label">Transaction total</span>
         <strong class="stat-value">
-            ${{ "%.2f"|format(transaction["total_cents"] / 100) }}
+            {{ transaction["total_cents"]|money }}
         </strong>
         <span class="stat-footnote">Recorded sale total</span>
     </article>
@@ -58,14 +61,14 @@
     </div>
 
     {% if items %}
-        <div class="table-wrap">
+        <div class="table-wrap" role="region" aria-label="Scrollable data table" tabindex="0">
             <table class="data-table">
                 <thead>
                     <tr>
-                        <th>Product</th>
-                        <th class="text-right">Unit price</th>
-                        <th class="text-right">Quantity</th>
-                        <th class="text-right">Line total</th>
+                        <th scope="col">Product</th>
+                        <th class="text-right" scope="col">Unit price</th>
+                        <th class="text-right" scope="col">Quantity</th>
+                        <th class="text-right" scope="col">Line total</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -73,12 +76,12 @@
                     <tr>
                         <td><strong>{{ item["product_name"] }}</strong></td>
                         <td class="text-right">
-                            ${{ "%.2f"|format(item["price_cents"] / 100) }}
+                            {{ item["price_cents"]|money }}
                         </td>
                         <td class="text-right">{{ item["quantity"] }}</td>
                         <td class="text-right">
                             <strong>
-                                ${{ "%.2f"|format(item["line_total_cents"] / 100) }}
+                                {{ item["line_total_cents"]|money }}
                             </strong>
                         </td>
                     </tr>
@@ -96,23 +99,27 @@
     <div class="detail-totals">
         <div>
             <span>Subtotal</span>
-            <strong>${{ "%.2f"|format(subtotal_cents / 100) }}</strong>
+            <strong>{{ subtotal_cents|money }}</strong>
         </div>
         <div>
             <span>Tax recorded</span>
-            <strong>${{ "%.2f"|format(tax_cents / 100) }}</strong>
+            <strong>{{ tax_cents|money }}</strong>
         </div>
         <div class="detail-total">
             <span>Total</span>
             <strong>
-                ${{ "%.2f"|format(transaction["total_cents"] / 100) }}
+                {{ transaction["total_cents"]|money }}
             </strong>
         </div>
     </div>
 </section>
 
+<section class="panel"><h3>Refund status: {{ refund_state.status|title }}</h3><p>Total refunded {{ refund_state.refunded_cents|money }} of {{ transaction.total_cents|money }}.</p>
+<div class="no-print"><a class="secondary-button" href="{{ url_for('transaction_receipt', transaction_id=transaction.id) }}">Print / save receipt as PDF</a>
+{% if refund_state.eligible and refund_state.status != 'refunded' and not g.is_demo and not config.DEMO_READ_ONLY %}<a class="secondary-button" href="{{ url_for('refunds.refund_form', transaction_id=transaction.id) }}">Simulated refund / return</a>{% elif not refund_state.eligible %}<p>This historical sale cannot be reconciled and is not eligible for refunds.</p>{% endif %}</div>
+<h4>Refund history</h4>{% for refund in refund_state.history %}<p><a href="{{ url_for('refunds.detail', refund_id=refund.id) }}">Refund #{{ refund.id }}</a> · {{ refund.recorded_at }} UTC · {{ refund.total_cents|money }} · {{ refund.reason }} · {{ 'Restocked' if refund.restock else 'Not restocked' }}</p>{% else %}<p>No refunds recorded.</p>{% endfor %}{% if refund_state.count>100 %}<p>Latest 100 shown; export the full ledger by refund date from analytics.</p>{% endif %}</section>
 <div class="page-actions">
-    <a class="primary-button" href="{{ url_for('sale') }}">Start another sale</a>
+    {% if ui_can_write %}<a class="primary-button" href="{{ url_for('sale') }}">Start another sale</a>{% endif %}
     <a class="secondary-button" href="{{ url_for('reports') }}">View reports</a>
 </div>
 {% endblock %}

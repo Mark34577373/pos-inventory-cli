@@ -2,6 +2,7 @@
 import tkinter as tk
 
 from database.database import get_store_connection as get_db_connection
+from services.analytics import ReportLimitError
 from services.money import format_cents
 from ui.reports_view import get_today_sales_summary
 
@@ -47,7 +48,11 @@ def get_dashboard_data():
 
 def create_dashboard_view(parent_frame):
     """Render today's store metrics and the latest transactions."""
-    data = get_dashboard_data()
+    try:
+        data = get_dashboard_data()
+    except ReportLimitError as error:
+        tk.Label(parent_frame, text=str(error), wraplength=500, fg="#b91c1c").pack(anchor=tk.W)
+        return
     sales = data["daily_sales"]
 
     tk.Label(

@@ -1,0 +1,281 @@
+{
+  "browser": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36",
+  "screenshot_available": true,
+  "screenshot_note": "Screenshots captured separately after workflow verification.",
+  "console_errors": [],
+  "passed": 40,
+  "checks": [
+    "Checkout page fits 1440",
+    "Charge action is within viewport 1440",
+    "Checkout page fits 1280",
+    "Charge action is within viewport 1280",
+    "Checkout page fits 1024",
+    "Charge action is within viewport 1024",
+    "Checkout page fits 768",
+    "Charge action is within viewport 768",
+    "Checkout page fits 390",
+    "Mobile cart shortcut visible",
+    "F2 DOM event focuses product search",
+    "SKU search retains cart",
+    "Tap adds stock through server",
+    "Customer search opens selector",
+    "Customer selection persists",
+    "Notes save and collapse",
+    "Discount is server reflected",
+    "Held sale navigates to saved sales",
+    "Resume restores notes and customer",
+    "Charge opens payment panel",
+    "Cash preview comes from server",
+    "Checkout requires confirmation",
+    "Checkout opens receipt",
+    "Receipt retains saved notes",
+    "Print hides console navigation",
+    "Saved designer preset reaches checkout",
+    "Dashboard uses committed sale",
+    "Chart date inspection announces data",
+    "Long cart fits 1440",
+    "Long-cart charge remains visible 1440",
+    "Long cart fits 1280",
+    "Long-cart charge remains visible 1280",
+    "Long cart fits 1024",
+    "Long-cart charge remains visible 1024",
+    "Long cart fits 768",
+    "Long-cart charge remains visible 768",
+    "Long cart fits 390",
+    "Mobile long cart remains accessible",
+    "Long cart scrolls independently",
+    "No browser JavaScript or resource errors"
+  ],
+  "viewports": [
+    {
+      "name": "checkout-1440",
+      "width": 1440,
+      "scrollWidth": 1440,
+      "height": 900,
+      "title": "Retail checkout | TCCP",
+      "main": true,
+      "charge": {
+        "top": 822,
+        "bottom": 880,
+        "width": 391
+      },
+      "panels": [
+        {
+          "width": 806.40625,
+          "left": 201.59375
+        },
+        {
+          "width": 432,
+          "left": 1008
+        }
+      ]
+    },
+    {
+      "name": "checkout-1280",
+      "width": 1280,
+      "scrollWidth": 1280,
+      "height": 900,
+      "title": "Retail checkout | TCCP",
+      "main": true,
+      "charge": {
+        "top": 822,
+        "bottom": 880,
+        "width": 343
+      },
+      "panels": [
+        {
+          "width": 716.8046875,
+          "left": 179.1953125
+        },
+        {
+          "width": 384,
+          "left": 896
+        }
+      ]
+    },
+    {
+      "name": "checkout-1024",
+      "width": 1024,
+      "scrollWidth": 1024,
+      "height": 900,
+      "title": "Retail checkout | TCCP",
+      "main": true,
+      "charge": {
+        "top": 822,
+        "bottom": 880,
+        "width": 309
+      },
+      "panels": [
+        {
+          "width": 674,
+          "left": 0
+        },
+        {
+          "width": 350,
+          "left": 674
+        }
+      ]
+    },
+    {
+      "name": "checkout-768",
+      "width": 768,
+      "scrollWidth": 768,
+      "height": 900,
+      "title": "Retail checkout | TCCP",
+      "main": true,
+      "charge": {
+        "top": 822,
+        "bottom": 880,
+        "width": 309
+      },
+      "panels": [
+        {
+          "width": 418,
+          "left": 0
+        },
+        {
+          "width": 350,
+          "left": 418
+        }
+      ]
+    },
+    {
+      "name": "checkout-390",
+      "width": 390,
+      "scrollWidth": 390,
+      "height": 900,
+      "title": "Retail checkout | TCCP",
+      "main": true,
+      "charge": {
+        "top": 3073.4375,
+        "bottom": 3131.4375,
+        "width": 358
+      },
+      "panels": [
+        {
+          "width": 390,
+          "left": 0
+        },
+        {
+          "width": 390,
+          "left": 0
+        }
+      ]
+    },
+    {
+      "name": "long-cart-1440",
+      "width": 1440,
+      "scrollWidth": 1440,
+      "height": 900,
+      "title": "Retail checkout | TCCP",
+      "main": true,
+      "charge": {
+        "top": 822,
+        "bottom": 880,
+        "width": 391
+      },
+      "panels": [
+        {
+          "width": 806.40625,
+          "left": 201.59375
+        },
+        {
+          "width": 432,
+          "left": 1008
+        }
+      ]
+    },
+    {
+      "name": "long-cart-1280",
+      "width": 1280,
+      "scrollWidth": 1280,
+      "height": 900,
+      "title": "Retail checkout | TCCP",
+      "main": true,
+      "charge": {
+        "top": 822,
+        "bottom": 880,
+        "width": 343
+      },
+      "panels": [
+        {
+          "width": 716.8046875,
+          "left": 179.1953125
+        },
+        {
+          "width": 384,
+          "left": 896
+        }
+      ]
+    },
+    {
+      "name": "long-cart-1024",
+      "width": 1024,
+      "scrollWidth": 1024,
+      "height": 900,
+      "title": "Retail checkout | TCCP",
+      "main": true,
+      "charge": {
+        "top": 822,
+        "bottom": 880,
+        "width": 309
+      },
+      "panels": [
+        {
+          "width": 674,
+          "left": 0
+        },
+        {
+          "width": 350,
+          "left": 674
+        }
+      ]
+    },
+    {
+      "name": "long-cart-768",
+      "width": 768,
+      "scrollWidth": 768,
+      "height": 900,
+      "title": "Retail checkout | TCCP",
+      "main": true,
+      "charge": {
+        "top": 822,
+        "bottom": 880,
+        "width": 309
+      },
+      "panels": [
+        {
+          "width": 418,
+          "left": 0
+        },
+        {
+          "width": 350,
+          "left": 418
+        }
+      ]
+    },
+    {
+      "name": "long-cart-390",
+      "width": 390,
+      "scrollWidth": 390,
+      "height": 900,
+      "title": "Retail checkout | TCCP",
+      "main": true,
+      "charge": {
+        "top": 3159.9375,
+        "bottom": 3217.9375,
+        "width": 358
+      },
+      "panels": [
+        {
+          "width": 390,
+          "left": 0
+        },
+        {
+          "width": 390,
+          "left": 0
+        }
+      ]
+    }
+  ]
+}
