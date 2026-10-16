@@ -39,6 +39,45 @@ def check_database(path=None):
     return integrity == ['ok'] and not foreign_keys, integrity, foreign_keys
 
 
+def restore_database(source, destination):
+    """Restore a validated SQLite snapshot to a new private file only.
+
+    Incomplete or invalid output is removed; the original and existing targets
+    are never replaced. Older supported schemas remain available for explicit init.
+    """
+    from database.validation import validate_integrity, validate_schema
+
+    source, destination = Path(source).resolve(), Path(destination).resolve()
+    if destination.exists():
+        raise ValueError('Restore target must be a new path; never overwrite a live database.')
+
+    def validate(connection):
+        tables = {r[0] for r in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        if not {'products', 'transactions', 'transaction_items'}.issubset(tables):
+            raise ValueError('Restore source is not a supported TCCP database.')
+        validate_schema(connection)
+        validate_integrity(connection)
+
+    with closing(sqlite3.connect(source.as_uri() + '?mode=ro', uri=True)) as original:
+        original.execute('PRAGMA foreign_keys=ON')
+        validate(original)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        descriptor = os.open(destination, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        created_inode = os.fstat(descriptor).st_ino
+        os.close(descriptor)
+        try:
+            with closing(sqlite3.connect(destination)) as target:
+                target.execute('PRAGMA foreign_keys=ON')
+                original.backup(target)
+                validate(target)
+        except BaseException:
+            # Delete only this invocation's newly created output, even on interruption.
+            if destination.exists() and destination.stat().st_ino == created_inode:
+                destination.unlink()
+            raise
+    return destination
+
+
 def repair_missing_products():
     """Restore referential integrity with explicit inactive unknown placeholders.
 
@@ -99,20 +138,7 @@ def main():
         elif args.command == 'restore':
             if not args.file:
                 parser.error('--file is required')
-            target = Path(database.DB_FILE).resolve()
-            if target.exists():
-                raise ValueError('Restore target must be a new path; never overwrite a live database.')
-            if not check_database(args.file)[0]:
-                raise ValueError('Backup fails integrity checks.')
-            target.parent.mkdir(parents=True, exist_ok=True)
-            descriptor = os.open(target, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
-            os.close(descriptor)
-            with closing(sqlite3.connect(Path(args.file).resolve().as_uri() + '?mode=ro', uri=True)) as source:
-                source.execute('PRAGMA foreign_keys=ON')
-                with closing(sqlite3.connect(target)) as destination:
-                    destination.execute('PRAGMA foreign_keys=ON')
-                    source.backup(destination)
-            target.chmod(0o600)
+            restore_database(args.file, database.DB_FILE)
         elif args.command in ('seed-demo', 'add-public-demo'):
             if not __import__('os').environ.get('TCCP_DB_PATH'):
                 raise ValueError('Set TCCP_DB_PATH to a separate demo database first.')

@@ -65,6 +65,8 @@ def establish_login(user_id, *, store_id=None):
 
 @bp.route("/register", methods=["GET", "POST"])
 def register():
+    if not current_app.config["REGISTRATION_ENABLED"]:
+        abort(403, description="Account registration is closed on this deployment.")
     if request.method == "POST":
         if not consume_rate_limit(
             current_app.secret_key, "register", request.remote_addr or "unknown"

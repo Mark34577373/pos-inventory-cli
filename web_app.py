@@ -76,6 +76,18 @@ _trusted_hosts = [host.strip() for host in os.environ.get('TCCP_TRUSTED_HOSTS', 
 if not _trusted_hosts and os.environ.get('TCCP_ENV') == 'production':
     _trusted_hosts = ['localhost', '127.0.0.1', '[::1]']
 
+def environment_flag(name, default):
+    """Reject misspelled security flags instead of enabling writes accidentally."""
+    value = os.environ.get(name, default)
+    if value not in ("0", "1"):
+        raise RuntimeError(f"{name} must be 0 or 1.")
+    return value == "1"
+
+
+if os.environ.get("TCCP_ENV", "development") not in ("development", "testing", "production"):
+    raise RuntimeError("TCCP_ENV must be development, testing, or production.")
+
+
 app.secret_key = os.environ.get("TCCP_SECRET_KEY") or secrets.token_hex(32)
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
@@ -87,7 +99,8 @@ app.config.update(
     TRUSTED_HOSTS=_trusted_hosts or None,
     PERMANENT_SESSION_LIFETIME=timedelta(hours=8),
     SESSION_REFRESH_EACH_REQUEST=False,
-    DEMO_READ_ONLY=os.environ.get("TCCP_READ_ONLY", "1" if os.environ.get("TCCP_ENV") == "production" else "0") == "1",
+    DEMO_READ_ONLY=environment_flag("TCCP_READ_ONLY", "1" if os.environ.get("TCCP_ENV") == "production" else "0"),
+    REGISTRATION_ENABLED=environment_flag("TCCP_ALLOW_REGISTRATION", "0" if os.environ.get("TCCP_ENV") == "production" else "1"),
 )
 if os.environ.get("TCCP_ENV") == "production" and len(os.environ.get("TCCP_SECRET_KEY", "").strip()) < 32:
     raise RuntimeError("Production requires TCCP_SECRET_KEY of at least 32 characters.")
@@ -96,6 +109,8 @@ if os.environ.get("TCCP_ENV") == "production" and not os.path.isabs(os.environ.g
 if os.environ.get("TCCP_ENV") == "production":
     from contextlib import closing
     from pathlib import Path
+    if Path(os.environ["TCCP_DB_PATH"]).resolve().is_relative_to(Path(app.static_folder).resolve()):
+        raise RuntimeError("Production database must be outside the public static directory.")
     try:
         with closing(sqlite3.connect(Path(os.environ["TCCP_DB_PATH"]).resolve().as_uri() + "?mode=ro", uri=True)) as startup_db:
             startup_db.execute('PRAGMA foreign_keys=ON')

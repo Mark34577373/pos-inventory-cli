@@ -48,7 +48,7 @@
         {% else %}
         <nav class="sidebar-nav" aria-label="Account navigation">
             {{ nav_item('auth.login','Sign in','→',request.endpoint=='auth.login') }}
-            {{ nav_item('auth.register','Create account','＋',request.endpoint=='auth.register') }}
+            {% if config.REGISTRATION_ENABLED %}{{ nav_item('auth.register','Create account','＋',request.endpoint=='auth.register') }}{% endif %}
         </nav>
         {% endif %}
         <div class="sidebar-bottom"><p class="sidebar-status"><span class="status-dot" aria-hidden="true"></span>Simulated POS</p><small>Fictional data. No real payments.</small></div>

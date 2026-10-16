@@ -394,3 +394,22 @@ Day 26B.1 refines checkout with icon-backed category navigation, product illustr
 a compact search bar, contextual quantity controls and a separately scrolling cart
 above stable totals. No backend or schema change. See
 [Day 26B.1 verification and remaining visual review](docs/DAY26B1_COMPLETION_REPORT.md).
+
+### Day 27 — release-candidate verification
+
+Production now closes public registration by default. Use `TCCP_ALLOW_REGISTRATION=0`
+for a restricted portfolio demo; local development defaults to enabled registration.
+`TCCP_READ_ONLY` and `TCCP_ALLOW_REGISTRATION` accept only `0` or `1`, and unknown
+`TCCP_ENV` names fail startup. Production databases must be outside the public static
+root. Existing login, CSRF, isolated stores and simulated transactions are preserved.
+
+Restore now validates TCCP schema guards/integrity before and after copying into a
+new private file; failed new output is removed without changing the backup or any
+existing target. Schema remains 27; Day 27 requires no migration or dependency change.
+
+Read the [security audit](docs/DAY27_SECURITY_AUDIT.md),
+[test evidence](docs/DAY27_TEST_RESULTS.md),
+[production checklist](docs/DAY27_PRODUCTION_READINESS.md) and
+[release assessment](docs/DAY27_COMPLETION_REPORT.md).
+This is a conditional fictional-data demo release candidate, not real-payment or
+commercial-operation approval. No deployment was performed.
