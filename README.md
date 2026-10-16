@@ -147,3 +147,15 @@ Money totals remain integer cents. Recorded sale totals include tax; item sales 
 Migration **16** adds two store-aware indexes only. Stop writers, run `python manage.py init` (which backs up an existing database), then `python manage.py check`. Production requires migration 16 before startup. Reports are bounded to 10,000 transactions per current/comparison period and 50,000 current line items; narrow the range if a report exceeds the limits.
 
 See [Day 16 metric definitions, dates, exports and security notes](docs/DAY16.md) for reconciliation rules, DST limitations, store isolation, query limits, performance and recovery.
+
+## Day 17 checkout, receipts and simulated refunds
+
+Checkout now includes quantity increase/decrease, automatic authoritative total updates, category filters and product pagination. Clear-cart confirmation and normal form submission remain available. Transaction history supports status filters, date/total sorting and 20-record pages. Open a historical transaction to print its persisted receipt or save it as PDF through your browser.
+
+**Simulated refund / return** offers selected quantities or all remaining items, a required reason, an authoritative preview and confirmation. Restocking defaults **off**; leave it off for damaged/discarded goods. Refund and optional stock restoration/audit commit atomically. Duplicate confirmations cannot refund or restock twice. Deactivated returned products stay inactive. Missing or unreconciled legacy sale details cannot be refunded.
+
+The approved tax policy allocates original tax cents to original units using proportional largest remainders, with stable line/unit tie-breaking. Repeated partial refunds exactly reconcile to the original sale. Original gross sales stay on sale dates; refunds appear on their refund dates, and net sales including tax = gross minus refunds. Rankings, average sale and payment breakdown retain gross-sale definitions. Summary/period CSVs include refund/net metrics, with a separate refund-ledger CSV. All records, receipts and exports remain private to their authorized store. Public demo remains read-only.
+
+Migration **17** is additive and preserves existing sale/stock history. Stop writers, run `.venv/bin/python manage.py init` (creates a backup), then `.venv/bin/python manage.py check` before starting upgraded web or desktop clients. Production now requires migration 17. No working database is automatically migrated during this development task. No new dependencies are required.
+
+See [Day 17 financial rules, workflows, security, migration and recovery](docs/DAY17.md). Earlier milestone documentation describes those milestones at completion; Day 17 supersedes their statements that refunds are unsupported or that production only requires migration 15/16.

@@ -3395,3 +3395,10 @@ select:focus-visible, textarea:focus-visible { outline: 3px solid #3978e8; outli
 .analytics-disclosure { padding: 10px 0; }
 .comparison-panel strong { font-variant-numeric: tabular-nums; }
 @media (max-width: 600px) { .analytics-product-row { grid-template-columns: 1fr auto; gap: 8px; } .analytics-product-track { grid-column: 1/-1; grid-row: 2; } }
+
+/* Day 17: consistent return forms and uncluttered receipt printing. */
+.panel textarea { width: 100%; min-height: 6rem; padding: .75rem; font: inherit; border: 1px solid #cbd5e1; border-radius: .5rem; }
+.sale-search select { max-width: 12rem; min-width: 0; }
+.cart-quantity-form { flex-wrap: wrap; }
+@media (max-width: 640px) { .sale-search { flex-wrap: wrap; } .sale-search select { max-width: 100%; width: 100%; } }
+@media print { .app-footer, .breadcrumb, .page-actions { display: none !important; } .receipt-paper { break-inside: auto; } .receipt-line { break-inside: avoid; } a { color: inherit; text-decoration: none; } }

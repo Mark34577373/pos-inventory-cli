@@ -538,7 +538,7 @@ class AnalyticsTests(unittest.TestCase):
                 row["version"]
                 for row in self.query("SELECT version FROM schema_migrations ORDER BY version")
             ],
-            [14, 15, 16],
+            [14, 15, 16, 17],
         )
         self.assertTrue(check_database()[0])
 

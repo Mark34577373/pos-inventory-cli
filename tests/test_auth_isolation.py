@@ -259,7 +259,7 @@ class AuthIsolationTests(unittest.TestCase):
                 or rule.endpoint == "static"
             ):
                 continue
-            path = rule.rule.replace("<int:product_id>", "1").replace("<int:transaction_id>", "1").replace("<int:category_id>", "1").replace("<int:adjustment_id>", "1")
+            path = rule.rule.replace("<int:product_id>", "1").replace("<int:transaction_id>", "1").replace("<int:category_id>", "1").replace("<int:adjustment_id>", "1").replace("<int:refund_id>", "1")
             if "GET" in rule.methods:
                 with self.subTest(path=path):
                     response = self.client.get(path)
@@ -479,7 +479,7 @@ class AuthIsolationTests(unittest.TestCase):
         db.initialize_database(seed=False)
         db.initialize_database(seed=False)
         self.assertEqual(before, self.query("SELECT * FROM products ORDER BY id"))
-        self.assertEqual(self.query("SELECT version FROM schema_migrations"), [{"version": 14}, {"version": 15}, {"version": 16}])
+        self.assertEqual(self.query("SELECT version FROM schema_migrations"), [{"version": 14}, {"version": 15}, {"version": 16}, {"version": 17}])
         login(self.client, "owner@example.com")
         self.assertNotIn(b"Mouse", self.client.get("/inventory").data)
         assign_legacy_owner("owner@example.com")

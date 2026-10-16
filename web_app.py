@@ -25,6 +25,7 @@ from database.database import get_store_connection as get_db_connection
 from database.database import initialize_database
 from inventory_routes import bp as inventory_blueprint
 from inventory_routes import pagination_links
+from refund_routes import bp as refund_blueprint
 from services.analytics import ReportLimitError, build_analytics, resolve_filters
 from services.auth import load_identity
 from services.inventory import (
@@ -32,7 +33,6 @@ from services.inventory import (
     deactivate_product,
     find_product_by_id,
     list_active_products,
-    search_active_products,
     set_product_quantity,
     update_product_record,
 )
@@ -44,12 +44,15 @@ from services.inventory_management import (
     stock_status,
 )
 from services.money import calculate_tax_cents, format_cents, from_cents, parse_cash
+from services.refunds import get_sale
+from services.transaction_history import query_transactions
 from services.transaction_service import complete_transaction
 
 app = Flask(__name__)
 app.register_blueprint(auth_blueprint)
 app.register_blueprint(analytics_blueprint)
 app.register_blueprint(inventory_blueprint)
+app.register_blueprint(refund_blueprint)
 
 app.secret_key = os.environ.get("TCCP_SECRET_KEY") or secrets.token_hex(32)
 app.config.update(
@@ -70,7 +73,7 @@ if os.environ.get("TCCP_ENV") == "production":
     from pathlib import Path
     try:
         with closing(sqlite3.connect(Path(os.environ["TCCP_DB_PATH"]).resolve().as_uri() + "?mode=ro", uri=True)) as startup_db:
-            if startup_db.execute("SELECT 1 FROM schema_migrations WHERE version=16").fetchone() is None:
+            if startup_db.execute("SELECT 1 FROM schema_migrations WHERE version=17").fetchone() is None:
                 raise RuntimeError("Run the explicit database migration before production startup.")
     except sqlite3.Error:
         raise RuntimeError("Production requires an existing database migrated with manage.py init.") from None
@@ -330,6 +333,7 @@ def dashboard():
 
     conn = get_db_connection()
     try:
+        conn.execute("BEGIN")
         today_summary = conn.execute(
             """
             SELECT
@@ -365,6 +369,10 @@ def dashboard():
             """,
             (start_date.isoformat(), today.isoformat()),
         ).fetchall()
+        refund_rows = conn.execute("SELECT total_cents FROM refunds WHERE store_id=authorized_store_id() AND business_date=? ORDER BY id LIMIT 10001", (today.isoformat(),)).fetchall()
+        if len(refund_rows) > 10000:
+            abort(413, description='Narrow reporting to at most 10,000 refunds.')
+        today_refunded = sum(row['total_cents'] for row in refund_rows)
     finally:
         conn.close()
 
@@ -398,6 +406,8 @@ def dashboard():
         **summary,
         today_sales_cents=today_summary["today_sales_cents"],
         today_transaction_count=today_summary["today_transaction_count"],
+        today_refunded_cents=today_refunded,
+        today_net_sales_cents=today_summary["today_sales_cents"]-today_refunded,
         recent_transactions=recent_rows,
         sales_chart=sales_chart,
         low_stock_products=query_inventory(inventory_filters({'status':'low'}))['products'][:10],
@@ -541,16 +551,20 @@ def remove_product(product_id):
 def sale():
     session.setdefault("checkout_token", secrets.token_urlsafe(32))
     search_term = request.args.get("q", "").strip()
-    products = (
-        search_active_products(search_term)
-        if search_term
-        else list_active_products()
-    )
+    try:
+        filters = inventory_filters(dict(request.args, active='active'))
+        product_data = query_inventory(filters)
+    except ValueError as error:
+        abort(400, description=str(error))
+    products = product_data['products']
 
     return render_template(
         "sale.html",
         products=products,
         search_term=search_term,
+        categories=list_categories(),
+        selected_category=request.args.get("category", ""),
+        pagination=pagination_links("sale", filters, product_data),
         **get_sale_data(),
     )
 
@@ -610,6 +624,12 @@ def sale_update(product_id):
     except (TypeError, ValueError):
         flash("Enter a valid whole-number quantity.", "error")
         return redirect(url_for("sale"))
+
+    adjustment = request.form.get('adjust', '')
+    if adjustment:
+        if adjustment not in ('plus', 'minus'):
+            abort(400)
+        quantity = int(cart[key]) + (1 if adjustment == 'plus' else -1)
 
     if quantity == 0:
         cart.pop(key, None)
@@ -743,24 +763,28 @@ def sale_checkout():
 @app.route("/receipt")
 def receipt():
     transaction_id = session.get("last_receipt_id")
-    if not isinstance(transaction_id, int) or not 0 < transaction_id <= 9223372036854775807:
+    if not isinstance(transaction_id, int):
         return redirect(url_for("sale"))
-    conn = get_db_connection()
+    return transaction_receipt(transaction_id)
+
+
+@app.get("/transactions/<int:transaction_id>/receipt")
+def transaction_receipt(transaction_id):
     try:
-        row = conn.execute("SELECT * FROM transactions WHERE store_id=authorized_store_id() AND id=?", (transaction_id,)).fetchone()
-        if row is None:
-            return redirect(url_for("sale"))
-        receipt_data = dict(row)
-        receipt_data["items"] = [dict(item) for item in conn.execute(
-            "SELECT product_name AS name, quantity, price_cents AS unit_price_cents, quantity*price_cents AS line_total_cents FROM transaction_items WHERE store_id=authorized_store_id() AND transaction_id=? ORDER BY id", (transaction_id,))]
-    finally:
-        conn.close()
-    receipt_data["transaction_id"] = row["id"]
-    receipt_data["subtotal_cents"] = sum(item["line_total_cents"] for item in receipt_data["items"])
-    receipt_data["tax_cents"] = row["total_cents"] - receipt_data["subtotal_cents"]
-    receipt_data["tax_rate_percent"] = Decimal(row["tax_rate_percent"] or "0")
-    receipt_data["change_cents"] = None if row["cash_received_cents"] is None else row["cash_received_cents"] - row["total_cents"]
-    return render_template("receipt.html", receipt=receipt_data)
+        state = get_sale(transaction_id)
+    except LookupError:
+        return redirect(url_for('sale'))
+    except ReportLimitError as error:
+        abort(413, description=str(error))
+    row = state['transaction']
+    receipt_data = dict(row)
+    receipt_data['items'] = [dict(name=item['product_name'], quantity=item['quantity'], unit_price_cents=item['price_cents'], line_total_cents=item['line_total_cents']) for item in state['items']]
+    receipt_data['transaction_id'] = row['id']
+    receipt_data['subtotal_cents'] = sum(item['line_total_cents'] for item in state['items'])
+    receipt_data['tax_cents'] = row['total_cents']-receipt_data['subtotal_cents']
+    receipt_data['tax_verified'] = state['eligible']
+    receipt_data['change_cents'] = None if row['cash_received_cents'] is None else row['cash_received_cents']-row['total_cents']
+    return render_template('receipt.html', receipt=receipt_data, refund_state=state)
 
 
 # -------------------------------------------------------------------
@@ -769,140 +793,31 @@ def receipt():
 
 @app.route("/transactions")
 def transactions():
-    search_text = request.args.get("q", "").strip()
-    payment_method = request.args.get("payment_method", "").strip().title()
-    start_text = request.args.get("start_date", "").strip()
-    end_text = request.args.get("end_date", "").strip()
-
-    if payment_method not in ("", "Cash", "Card"):
-        payment_method = ""
-
-    start_date = parse_iso_date(start_text) if start_text else None
-    end_date = parse_iso_date(end_text) if end_text else None
-
-    if start_text and start_date is None:
-        flash("The start date is invalid. Use the date picker.", "error")
-    if end_text and end_date is None:
-        flash("The end date is invalid. Use the date picker.", "error")
-
-    if start_date and end_date and start_date > end_date:
-        flash("Start date cannot be later than end date.", "error")
-        start_date = None
-        end_date = None
-
-    conditions = ["store_id=authorized_store_id()"]
-    params = []
-
-    if search_text:
-        if search_text.isdecimal():
-            conditions.append("id = ?")
-            params.append(int(search_text) if len(search_text) <= 19 and int(search_text) <= 9223372036854775807 else -1)
-        else:
-            conditions.append("(CAST(id AS TEXT) LIKE ? OR timestamp LIKE ?)")
-            params.extend([f"%{search_text}%", f"%{search_text}%"])
-
-    if payment_method:
-        conditions.append("payment_method = ?")
-        params.append(payment_method)
-
-    if start_date:
-        conditions.append("date(timestamp) >= ?")
-        params.append(start_date.isoformat())
-
-    if end_date:
-        conditions.append("date(timestamp) <= ?")
-        params.append(end_date.isoformat())
-
-    where_clause = " AND ".join(conditions) if conditions else "1 = 1"
-
-    conn = get_db_connection()
     try:
-        summary = conn.execute(
-            f"""
-            SELECT
-                COUNT(*) AS transaction_count,
-                COALESCE(SUM(total_cents), 0) AS total_cents
-            FROM transactions
-            WHERE store_id=authorized_store_id() AND {where_clause}
-            """,
-            params,
-        ).fetchone()
-
-        rows = conn.execute(
-            f"""
-            SELECT id, timestamp, total_cents, payment_method
-            FROM transactions
-            WHERE store_id=authorized_store_id() AND {where_clause}
-            ORDER BY timestamp DESC, id DESC
-            LIMIT 200
-            """,
-            params,
-        ).fetchall()
-    finally:
-        conn.close()
-
-    return render_template(
-        "transactions.html",
-        transactions=rows,
-        search_text=search_text,
-        payment_method=payment_method,
-        start_date=start_text if start_date else "",
-        end_date=end_text if end_date else "",
-        transaction_count=summary["transaction_count"],
-        total_cents=summary["total_cents"],
-    )
+        data = query_transactions(request.args)
+    except ReportLimitError as error:
+        abort(413, description=str(error))
+    except ValueError as error:
+        abort(400, description=str(error))
+    filters = dict(request.args)
+    filters.pop('page', None)
+    pagination = pagination_links('transactions', filters, data)
+    return render_template('transactions.html', **data, pagination=pagination)
 
 
 @app.route("/transactions/<int:transaction_id>")
 def transaction_detail(transaction_id):
     if transaction_id > 9223372036854775807:
         abort(404)
-    conn = get_db_connection()
     try:
-        transaction = conn.execute(
-            """
-            SELECT id, timestamp, total_cents, payment_method
-            FROM transactions
-            WHERE store_id=authorized_store_id() AND id = ?
-            """,
-            (transaction_id,),
-        ).fetchone()
-
-        if transaction is None:
-            transaction_items = []
-        else:
-            transaction_items = conn.execute(
-                """
-                SELECT
-                    product_name,
-                    quantity,
-                    price_cents,
-                    quantity * price_cents AS line_total_cents
-                FROM transaction_items
-                WHERE store_id=authorized_store_id() AND transaction_id = ?
-                ORDER BY rowid
-                """,
-                (transaction_id,),
-            ).fetchall()
-    finally:
-        conn.close()
-
-    if transaction is None:
-        flash(f"Transaction #{transaction_id} was not found.", "error")
-        return redirect(url_for("transactions"))
-
-    subtotal_cents = sum(
-        item["line_total_cents"] for item in transaction_items
-    )
-    tax_cents = transaction["total_cents"] - subtotal_cents
-
-    return render_template(
-        "transaction_detail.html",
-        transaction=transaction,
-        items=transaction_items,
-        subtotal_cents=subtotal_cents,
-        tax_cents=tax_cents,
-    )
+        state = get_sale(transaction_id)
+    except LookupError:
+        flash(f'Transaction #{transaction_id} was not found.', 'error')
+        return redirect(url_for('transactions'))
+    except ReportLimitError as error:
+        abort(413, description=str(error))
+    subtotal = sum(item['line_total_cents'] for item in state['items'])
+    return render_template('transaction_detail.html', transaction=state['transaction'], items=state['items'], subtotal_cents=subtotal, tax_cents=state['transaction']['total_cents']-subtotal, refund_state=state)
 
 
 # -------------------------------------------------------------------

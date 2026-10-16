@@ -5,7 +5,7 @@ import io
 
 from services.money import from_cents
 
-KINDS = ("summary", "periods", "products", "transactions")
+KINDS = ("summary", "periods", "products", "transactions", "refunds")
 
 
 def spreadsheet_text(value):
@@ -41,7 +41,7 @@ def create_csv(data, kind):
             ["Product limit", filters.top],
             [
                 "Financial model",
-                "Recorded sale totals include tax. Item sales exclude tax. No refunds, voids, or discounts supported.",
+                "Gross sales include tax on sale date. Refunds include tax on refund business date. Net = gross minus refunds. Rankings remain gross before tax. No discounts or voids.",
             ],
             [
                 "Tax disclosure",
@@ -58,6 +58,9 @@ def create_csv(data, kind):
                 ["Recorded sale totals USD (tax included)", amount(summary["revenue_cents"])],
                 ["Recorded item sales USD (before tax)", amount(summary["item_sales_cents"])],
                 ["Tax / reconciliation difference USD", amount(summary["tax_remainder_cents"])],
+                ["Refunds USD (refund date)", amount(summary["refunded_cents"])],
+                ["Net sales USD", amount(summary["net_sales_cents"])],
+                ["Completed simulated refunds", summary["refund_count"]],
                 ["Committed transactions", summary["transaction_count"]],
                 [
                     "Average order value USD (half-up rounded)",
@@ -88,6 +91,8 @@ def create_csv(data, kind):
                 "Recorded sale totals USD (tax included)",
                 "Committed transactions",
                 "Average order value USD",
+                "Refunds USD (refund date)",
+                "Net sales USD",
             ]
         )
         for row in data["series"]:
@@ -98,6 +103,8 @@ def create_csv(data, kind):
                     amount(row["revenue_cents"]),
                     row["transaction_count"],
                     amount(row["average_order_cents"]),
+                    amount(row["refunded_cents"]),
+                    amount(row["net_sales_cents"]),
                 ]
             )
     elif kind == "products":
@@ -120,6 +127,10 @@ def create_csv(data, kind):
                     amount(row["item_sales_cents"]),
                 ]
             )
+    elif kind == 'refunds':
+        writer.writerow(['Refund ID', 'Original transaction ID', 'Recorded at UTC', 'Refund business date', 'Refund USD including tax', 'Allocated tax USD', 'Restocked'])
+        for refund in data['refunds']:
+            writer.writerow([refund['id'], refund['transaction_id'], refund['recorded_at'], refund['business_date'], amount(refund['total_cents']), amount(refund['tax_cents']), 'Yes' if refund['restock'] else 'No'])
     else:
         writer.writerow(
             [
@@ -130,6 +141,7 @@ def create_csv(data, kind):
                 "Item sales USD (before tax)",
                 "Tax / reconciliation difference USD",
                 "Tax reconciled to recorded rate",
+                "Cumulative refunds USD (all dates)",
             ]
         )
         for tx in data["transactions"]:
@@ -142,6 +154,7 @@ def create_csv(data, kind):
                     amount(tx["item_sales_cents"]),
                     amount(tx["tax_remainder_cents"]),
                     "Yes" if tx["tax_verified"] else "Unverified",
+                    amount(tx["refunded_cents"]),
                 ]
             )
     return output.getvalue().encode("utf-8-sig")

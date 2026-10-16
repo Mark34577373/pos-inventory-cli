@@ -125,7 +125,8 @@ def resolve_filters(args, today=None):
 
 def _transactions(conn, filters):
     rows = conn.execute(
-        """SELECT id,timestamp,total_cents,payment_method,tax_rate_percent
+        """SELECT id,timestamp,total_cents,payment_method,tax_rate_percent,
+        COALESCE((SELECT SUM(r.total_cents) FROM refunds r WHERE r.store_id=transactions.store_id AND r.transaction_id=transactions.id),0) AS refunded_cents
         FROM transactions WHERE store_id=authorized_store_id() AND timestamp>=? AND timestamp<?
         ORDER BY timestamp,id LIMIT ?""",
         (filters.lower, filters.upper, MAX_TRANSACTIONS + 1),
@@ -213,6 +214,13 @@ def build_analytics(filters):
         ).fetchall()
         if len(items) > MAX_ITEMS:
             raise ReportLimitError(f"Narrow the period to at most {MAX_ITEMS:,} line items.")
+        refunds = [dict(row) for row in conn.execute(
+            """SELECT id,transaction_id,recorded_at,business_date,total_cents,tax_cents,restock
+            FROM refunds WHERE store_id=authorized_store_id() AND business_date>=? AND business_date<=?
+            ORDER BY business_date,id LIMIT ?""",
+            (filters.start.isoformat(), filters.end.isoformat(), MAX_TRANSACTIONS + 1))]
+        if len(refunds) > MAX_TRANSACTIONS:
+            raise ReportLimitError('Narrow the period to at most 10,000 refunds.')
         store = dict(
             conn.execute("SELECT id,name FROM stores WHERE id=authorized_store_id()").fetchone()
         )
@@ -293,14 +301,24 @@ def build_analytics(filters):
         "units_sold": sum(row["units_sold"] for row in products.values()),
         "unverified_tax_transactions": unverified,
     }
+    refunded = sum(row['total_cents'] for row in refunds)
+    summary.update(refunded_cents=refunded, net_sales_cents=total-refunded, refund_count=len(refunds))
+    series = _series(filters, transactions)
+    refund_buckets = defaultdict(int)
+    for refund in refunds:
+        refund_buckets[_bucket(date.fromisoformat(refund['business_date']), filters.group)] += refund['total_cents']
+    for row in series:
+        row['refunded_cents'] = refund_buckets[_bucket(date.fromisoformat(row['period_start']), filters.group)]
+        row['net_sales_cents'] = row['revenue_cents'] - row['refunded_cents']
     return {
+        "refunds": refunds,
         "filters": filters,
         "store": store,
         "timezone": BUSINESS_TIMEZONE,
         "summary": summary,
         "comparison": comparison(total, prior),
         "previous_count": len(previous),
-        "series": _series(filters, transactions),
+        "series": series,
         "products": ranked,
         "product_count": len(products),
         "payment_rows": sorted(

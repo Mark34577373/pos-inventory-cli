@@ -33,7 +33,8 @@
                 value="{{ search_term }}"
                 placeholder="Search by product name..."
             >
-            <button class="secondary-button" type="submit">Search</button>
+            <label class="sr-only" for="sale-category">Category</label><select id="sale-category" name="category"><option value="">All categories</option>{% for category in categories %}<option value="{{ category.id }}" {% if selected_category|string == category.id|string %}selected{% endif %}>{{ category.name }}</option>{% endfor %}</select>
+            <button class="secondary-button" type="submit">Search / filter</button>
             {% if search_term %}
                 <a class="text-link" href="{{ url_for('sale') }}">Clear</a>
             {% endif %}
@@ -50,7 +51,7 @@
                     <p class="muted">Product #{{ product.id }}</p>
                     <div class="sale-product-bottom">
                         <strong class="sale-product-price">
-                            ${{ "%.2f"|format(product.price_cents / 100) }}
+                            {{ product.price_cents|money }}
                         </strong>
 
                         {% if product.quantity <= 0 %}
@@ -110,7 +111,9 @@
             <a class="primary-button" href="{{ url_for('add_product') }}">Add a product</a>
         </div>
         {% endif %}
+    <nav class="no-print" aria-label="Product pages">{% if pagination.previous %}<a href="{{ pagination.previous }}">Previous products</a>{% endif %} {% if pagination.next %}<a href="{{ pagination.next }}">More products</a>{% endif %}</nav>
     </section>
+
 
     <aside class="sale-cart-panel">
         <div class="panel-heading cart-heading">
@@ -126,7 +129,7 @@
             <strong>Unavailable cart entries</strong>
             <p>{{ unavailable_items|join(", ") }}</p>
             <p>Clear this cart to remove unavailable entries.</p>
-            <form method="post" action="{{ url_for('sale_cancel') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="secondary-button">Clear cart</button></form>
+            <form method="post" action="{{ url_for('sale_cancel') }}" onsubmit="return confirm('Clear this cart?');"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="secondary-button">Clear cart</button></form>
         </div>
         {% endif %}
 
@@ -138,12 +141,12 @@
                     <div>
                         <h3>{{ item.product.name }}</h3>
                         <p class="muted">
-                            ${{ "%.2f"|format(item.price_cents / 100) }} each
+                            {{ item.price_cents|money }} each
                         </p>
                     </div>
 
                     <strong class="cart-line-total">
-                        ${{ "%.2f"|format(item.line_total_cents / 100) }}
+                        {{ item.line_total_cents|money }}
                     </strong>
                 </div>
 
@@ -171,7 +174,9 @@
                             step="1"
                             required
                         >
+                        <button class="small-button" type="submit" name="adjust" value="minus" aria-label="Decrease quantity for {{ item.product.name }}">−</button>
                         <button class="small-button" type="submit">Update</button>
+                        <button class="small-button" type="submit" name="adjust" value="plus" aria-label="Increase quantity for {{ item.product.name }}">+</button>
                     </form>
 
                     <form
@@ -186,18 +191,18 @@
             {% endfor %}
         </div>
 
-        <div class="cart-totals">
+        <div class="cart-totals" role="status" aria-live="polite" aria-label="Authoritative cart totals">
             <div>
                 <span>Subtotal</span>
-                <strong>${{ "%.2f"|format(subtotal_cents / 100) }}</strong>
+                <strong>{{ subtotal_cents|money }}</strong>
             </div>
             <div>
                 <span>Tax ({{ "%.2f"|format(tax_rate_percent) }}%)</span>
-                <strong>${{ "%.2f"|format(tax_cents / 100) }}</strong>
+                <strong>{{ tax_cents|money }}</strong>
             </div>
             <div class="cart-grand-total">
                 <span>Total due</span>
-                <strong>${{ "%.2f"|format(total_cents / 100) }}</strong>
+                <strong>{{ total_cents|money }}</strong>
             </div>
         </div>
 
@@ -223,7 +228,7 @@
                     placeholder="Enter amount received"
                 >
                 <span class="field-help">
-                    Must be at least ${{ "%.2f"|format(total_cents / 100) }}.
+                    Must be at least {{ total_cents|money }}.
                 </span>
             </div>
 
@@ -242,7 +247,7 @@
                 class="primary-button checkout-button"
                 {% if has_stock_problem %}disabled{% endif %}
             >
-                Complete sale · ${{ "%.2f"|format(total_cents / 100) }}
+                Complete sale · {{ total_cents|money }}
             </button>
         </form>
 
@@ -263,27 +268,4 @@
 </div>
 {% endblock %}
 
-{% block scripts %}
-<script>
-    (() => {
-        const paymentMethod = document.getElementById("payment-method");
-        const cashField = document.getElementById("cash-field");
-        const cashInput = document.getElementById("cash-received");
-        const cardNotice = document.getElementById("card-notice");
-
-        if (!paymentMethod || !cashField || !cashInput || !cardNotice) {
-            return;
-        }
-
-        function updatePaymentFields() {
-            const isCash = paymentMethod.value === "Cash";
-            cashField.hidden = !isCash;
-            cashInput.required = isCash;
-            cardNotice.hidden = isCash;
-        }
-
-        paymentMethod.addEventListener("change", updatePaymentFields);
-        updatePaymentFields();
-    })();
-</script>
-{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='js/checkout.js') }}" defer></script>{% endblock %}
