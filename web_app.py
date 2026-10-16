@@ -17,6 +17,7 @@ from flask import (
     session,
     url_for,
 )
+from werkzeug.exceptions import HTTPException, SecurityError
 
 from analytics_routes import bp as analytics_blueprint
 from auth_routes import bp as auth_blueprint
@@ -40,8 +41,10 @@ from services.inventory_management import (
     UNSET,
     inventory_filters,
     list_categories,
+    positive_id,
     query_inventory,
     stock_status,
+    whole_number,
 )
 from services.money import calculate_tax_cents, format_cents, from_cents, parse_cash
 from services.refunds import get_sale
@@ -54,17 +57,24 @@ app.register_blueprint(analytics_blueprint)
 app.register_blueprint(inventory_blueprint)
 app.register_blueprint(refund_blueprint)
 
+_trusted_hosts = [host.strip() for host in os.environ.get('TCCP_TRUSTED_HOSTS', '').split(',') if host.strip()]
+if not _trusted_hosts and os.environ.get('TCCP_ENV') == 'production':
+    _trusted_hosts = ['localhost', '127.0.0.1', '[::1]']
+
 app.secret_key = os.environ.get("TCCP_SECRET_KEY") or secrets.token_hex(32)
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
     SESSION_COOKIE_SECURE=os.environ.get("TCCP_ENV") == "production",
     MAX_CONTENT_LENGTH=64 * 1024,
+    MAX_FORM_MEMORY_SIZE=64 * 1024,
+    MAX_FORM_PARTS=1100,
+    TRUSTED_HOSTS=_trusted_hosts or None,
     PERMANENT_SESSION_LIFETIME=timedelta(hours=8),
     SESSION_REFRESH_EACH_REQUEST=False,
     DEMO_READ_ONLY=os.environ.get("TCCP_READ_ONLY", "1" if os.environ.get("TCCP_ENV") == "production" else "0") == "1",
 )
-if os.environ.get("TCCP_ENV") == "production" and len(os.environ.get("TCCP_SECRET_KEY", "")) < 32:
+if os.environ.get("TCCP_ENV") == "production" and len(os.environ.get("TCCP_SECRET_KEY", "").strip()) < 32:
     raise RuntimeError("Production requires TCCP_SECRET_KEY of at least 32 characters.")
 if os.environ.get("TCCP_ENV") == "production" and not os.path.isabs(os.environ.get("TCCP_DB_PATH", "")):
     raise RuntimeError("Production requires an absolute persistent TCCP_DB_PATH.")
@@ -73,9 +83,15 @@ if os.environ.get("TCCP_ENV") == "production":
     from pathlib import Path
     try:
         with closing(sqlite3.connect(Path(os.environ["TCCP_DB_PATH"]).resolve().as_uri() + "?mode=ro", uri=True)) as startup_db:
+            startup_db.execute('PRAGMA foreign_keys=ON')
             if startup_db.execute("SELECT 1 FROM schema_migrations WHERE version=17").fetchone() is None:
                 raise RuntimeError("Run the explicit database migration before production startup.")
-    except sqlite3.Error:
+            from database.validation import validate_integrity, validate_schema
+            validate_schema(startup_db, require_current=True)
+            validate_integrity(startup_db)
+            if os.name == 'posix' and Path(os.environ['TCCP_DB_PATH']).stat().st_mode & 0o077:
+                raise RuntimeError('Production database must have private file permissions (0600).')
+    except (sqlite3.Error, ValueError):
         raise RuntimeError("Production requires an existing database migrated with manage.py init.") from None
 
 
@@ -95,6 +111,7 @@ def protect_writes():
     g.user = None
     g.store = None
     g.is_demo = False
+    unsafe = request.method not in ('GET', 'HEAD', 'OPTIONS')
     public = {'static', 'auth.login', 'auth.register', 'auth.demo', 'auth.logout'}
     if request.endpoint == 'static':
         return None
@@ -113,7 +130,7 @@ def protect_writes():
         if store:
             g.store = dict(store)
             g.is_demo = True
-    if request.method == 'POST' and request.endpoint not in public and app.config['DEMO_READ_ONLY']:
+    if unsafe and request.endpoint not in public and app.config['DEMO_READ_ONLY']:
         abort(403, description='This deployment is read-only.')
     if request.endpoint not in public and request.endpoint is not None and g.store is None:
         if request.path.startswith('/api/'):
@@ -127,11 +144,24 @@ def protect_writes():
             for key in ('sale_cart', 'checkout_token', 'last_receipt_id', 'last_receipt'):
                 session.pop(key, None)
             session['cart_context'] = context
-    if request.method == "POST":
+    if len(request.query_string) > 8192:
+        abort(414, description='The query is too long. Use shorter filters.')
+    if any(len(request.args.getlist(key)) != 1 for key in request.args):
+        abort(400, description='Duplicate query parameters are not supported.')
+    if unsafe:
+        # All current mutations are HTML form endpoints, not JSON APIs.
+        if request.mimetype not in ('application/x-www-form-urlencoded', 'multipart/form-data', ''):
+            abort(415, description='Submit this action using its HTML form.')
+        if request.files or any(len(request.form.getlist(key)) != 1 for key in request.form):
+            abort(400, description='Duplicate form fields and file uploads are not supported.')
         if g.is_demo and request.endpoint not in public:
             abort(403, description="This public demo is read-only.")
         expected = session.get("csrf_token", "")
         submitted = request.form.get("csrf_token", "")
+        header_token = request.headers.get('X-CSRF-Token', '')
+        if header_token and submitted and header_token != submitted:
+            abort(400, description='Conflicting form tokens. Reload and retry.')
+        submitted = header_token or submitted
         if not expected or not hmac.compare_digest(expected.encode("utf-8"), submitted.encode("utf-8")):
             abort(400, description="Form expired. Refresh the page and try again.")
 
@@ -142,11 +172,24 @@ def database_error(error):
     return render_template("error.html", message="The database is unavailable. Please retry shortly.", status_code=503), 503
 
 
+@app.errorhandler(Exception)
+def safe_unhandled_error(error):
+    if isinstance(error, HTTPException):
+        return error
+    if app.debug and os.environ.get('TCCP_ENV') != 'production':
+        raise error
+    app.logger.error('Unhandled request failure at %s (%s)', request.endpoint or 'unmatched', type(error).__name__)
+    return render_template('error.html', message='An unexpected error occurred. Please refresh and retry.', status_code=500), 500
+
+
 @app.errorhandler(500)
 def unexpected_error(error):
     return render_template("error.html", message="An unexpected error occurred. Please refresh and retry.", status_code=500), 500
 
 
+@app.errorhandler(409)
+@app.errorhandler(414)
+@app.errorhandler(415)
 @app.errorhandler(401)
 @app.errorhandler(405)
 @app.errorhandler(429)
@@ -155,6 +198,14 @@ def unexpected_error(error):
 @app.errorhandler(413)
 def request_error(error):
     response = error.get_response()
+    # Invalid hosts have no URL adapter; a template calling url_for would fail.
+    if error.code == 400:
+        try:
+            request.host
+        except SecurityError:
+            response.set_data('The request host is not permitted.')
+            response.mimetype = 'text/plain'
+            return response
     response.set_data(render_template("error.html", message=error.description, status_code=error.code))
     response.content_type = "text/html; charset=utf-8"
     return response
@@ -164,9 +215,10 @@ def request_error(error):
 def security_headers(response):
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=(), payment=()"
     response.headers["Referrer-Policy"] = "same-origin"
     response.headers["Cache-Control"] = "no-store, private"
-    response.headers['Content-Security-Policy'] = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"
+    response.headers['Content-Security-Policy'] = "default-src 'self'; script-src 'self'; script-src-attr 'none'; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; connect-src 'self'; worker-src 'none'"
     if os.environ.get('TCCP_ENV') == 'production':
         response.headers['Strict-Transport-Security'] = 'max-age=31536000'
 
@@ -216,7 +268,7 @@ def read_product_form():
         raise ValueError("Price can have no more than two decimal places.")
 
     try:
-        quantity = int(quantity_text)
+        quantity = whole_number(quantity_text)
     except (ValueError, TypeError):
         raise ValueError("Quantity must be a whole number.") from None
 
@@ -284,15 +336,7 @@ def get_sale_data():
 
 def parse_quantity(value):
     """Parse a safe, positive whole-number quantity."""
-    try:
-        quantity = int(value)
-    except (TypeError, ValueError):
-        raise ValueError("Quantity must be a whole number.") from None
-
-    if not 1 <= quantity <= 1_000_000:
-        raise ValueError("Quantity must be between 1 and 1,000,000.")
-
-    return quantity
+    return whole_number(value, 1)
 
 
 def parse_iso_date(value):
@@ -586,7 +630,7 @@ def sale():
 @app.route("/sale/add", methods=["POST"])
 def sale_add():
     try:
-        product_id = int(request.form.get("product_id", ""))
+        product_id = positive_id(request.form.get("product_id", ""))
         quantity_to_add = parse_quantity(request.form.get("quantity", "1"))
     except ValueError as error:
         flash(str(error) or "Choose a valid product and quantity.", "error")
@@ -634,7 +678,7 @@ def sale_update(product_id):
         return redirect(url_for("sale"))
 
     try:
-        quantity = int(request.form.get("quantity", ""))
+        quantity = whole_number(request.form.get("quantity", ""))
     except (TypeError, ValueError):
         flash("Enter a valid whole-number quantity.", "error")
         return redirect(url_for("sale"))
@@ -759,8 +803,8 @@ def sale_checkout():
     except ValueError as error:
         flash(f"Checkout could not be completed: {error}", "error")
         return redirect(url_for("sale"))
-    except sqlite3.Error:
-        app.logger.exception("SQLite error while completing checkout")
+    except sqlite3.Error as error:
+        app.logger.error("Database operation failed during simulated checkout (%s)", type(error).__name__)
         flash(
             "The sale could not be saved. No partial transaction was committed.",
             "error",

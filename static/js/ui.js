@@ -105,6 +105,7 @@
         }, 30000);
     });
     document.addEventListener('click', async event => {
+        if (event.target.closest('[data-print]')) { window.print(); return; }
         if (event.target.id === 'dismiss-notice') { if (notice()) notice().hidden = true; return; }
         const link = event.target.closest('a[data-export]');
         if (!link || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;

@@ -12,6 +12,7 @@ from flask import has_request_context
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from database.database import get_db_connection
+from services.validation import visible_text
 
 # OWASP's supported scrypt work factor; Werkzeug supplies salt and encoding.
 HASH_METHOD = "scrypt:32768:8:3"
@@ -37,7 +38,7 @@ def register_user(email, password, confirmation, store_name=""):
         raise ValueError("Passwords do not match.")
     if not isinstance(store_name, str) or len(store_name.strip()) > 100:
         raise ValueError("Store name must be 100 characters or fewer.")
-    store_name = store_name.strip() or "My store"
+    store_name = visible_text(store_name, "Store name", 100, optional=True) or "My store"
     password_hash = generate_password_hash(password, method=HASH_METHOD)
     with closing(get_db_connection()) as conn:
         try:

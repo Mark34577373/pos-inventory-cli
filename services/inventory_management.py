@@ -8,6 +8,7 @@ from datetime import date
 
 from database.database import get_store_connection
 from database.tenancy import require_store_write
+from services.validation import visible_text
 
 DEFAULT_THRESHOLD = 5
 PAGE_SIZE = 20
@@ -38,7 +39,10 @@ def positive_id(value):
     if isinstance(value, bool):
         raise ValueError("Choose a valid identifier.")
     try:
-        parsed = int(str(value))
+        text = str(value).strip()
+        if not re.fullmatch(r'[0-9]{1,19}', text):
+            raise ValueError
+        parsed = int(text)
     except (TypeError, ValueError):
         raise ValueError("Choose a valid identifier.") from None
     if not 0 < parsed <= 9223372036854775807:
@@ -227,8 +231,7 @@ def adjust_stock(product_id, amount, adjustment_type, reason, *, expected_quanti
     if adjustment_type not in ("restock", "correction", "damaged", "return"):
         raise ValueError("Choose a supported stock adjustment type.")
     amount = whole_number(amount, 0 if adjustment_type == "correction" else 1)
-    if not isinstance(reason, str) or not 1 <= len(reason.strip()) <= 500:
-        raise ValueError("An adjustment reason of 1–500 characters is required.")
+    reason = visible_text(reason, "Adjustment reason", 500, multiline=True)
     if expected_quantity is not None:
         expected_quantity = whole_number(expected_quantity)
     with closing(get_store_connection()) as conn:

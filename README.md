@@ -169,3 +169,13 @@ Checkout and destructive actions use a shared confirmation dialog; cart totals r
 Run `.venv/bin/python -m pytest -q` and `.venv/bin/ruff check .`. Optional dependency-free frontend interaction checks run with `node tests/frontend_checks.mjs` (Node 20+). No new Python/npm dependency or database migration is required.
 
 See [Day 18 design system, page changes, accessibility and manual QA](docs/DAY18.md). No interactive browser was available during implementation; visual checks at 320/375/768/1024/1440px, actual screen-reader/modal behavior and print-preview QA remain manual. Automated contrast/HTML/interaction checks do not establish full WCAG compliance.
+
+## Day 19 database and security hardening
+
+Initialization now checks migration history against required schema/ownership/audit protections and validates SQLite integrity/foreign keys before and after changes. Missing protections, unknown versions and inconsistent ownership stop safely. Existing migration versions 14–17 are retained; **no new schema migration or financial rule is introduced**. New databases, backups and restore targets are created privately (0600); existing files are never overwritten or silently chmodded.
+
+Production also validates the database and requires private file permissions on POSIX systems. Set `TCCP_TRUSTED_HOSTS` to the actual HTTPS hostname(s), comma separated without scheme/port; omitted/blank production settings allow only localhost/loopback. Keep the application behind a trusted HTTPS proxy and its SQLite directory private. For an existing verified production file, set `chmod 600 /private/path/tccp.db` before startup.
+
+All unsafe browser mutations require CSRF. Current mutation endpoints accept HTML forms, not JSON: unsupported content types return 415; duplicate parameters, conflicting tokens and uploads are rejected. Inputs remain validated server-side, store IDs remain server-authorized, and exact cents/atomic checkout/refunds remain unchanged. Script CSP now rejects inline scripts/handlers; receipt/refund print buttons use external JavaScript. Error logging records operation/endpoint and exception class without raw exception messages outside explicit local debug.
+
+Run `.venv/bin/python -m pytest -q`, `.venv/bin/ruff check .`, `.venv/bin/python -m pip_audit -r requirements.txt`, and `.venv/bin/python manage.py check`. See [Day 19 findings, security architecture, backup/recovery and verification](docs/DAY19.md) for the evidence, ownership-field compatibility, new configuration, deployment assumptions and remaining limitations. Tests and scans do not guarantee production security.

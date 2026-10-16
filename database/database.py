@@ -13,7 +13,16 @@ class InventoryConnection(sqlite3.Connection):
 
 def get_db_connection():
     """Establishes a connection to the SQLite database with row factory enabled."""
-    conn = sqlite3.connect(DB_FILE, factory=InventoryConnection)
+    if str(DB_FILE) != ':memory:':
+        from pathlib import Path
+        path = Path(DB_FILE)
+        try:
+            descriptor = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        except FileExistsError:
+            pass
+        else:
+            os.close(descriptor)
+    conn = sqlite3.connect(DB_FILE, factory=InventoryConnection, timeout=5)
     from database.tenancy import current_store_id
     conn.create_function("authorized_store_id", 0, current_store_id)
     from flask import g, has_request_context
@@ -25,6 +34,10 @@ def get_db_connection():
     conn.create_function("audit_refund_id", 0, lambda: conn.audit_context.get("refund_id"))
     conn.row_factory = sqlite3.Row  # Allows accessing columns by name like dictionary keys
     conn.execute("PRAGMA foreign_keys = ON")
+    if conn.execute('PRAGMA foreign_keys').fetchone()[0] != 1:
+        conn.close()
+        raise RuntimeError('SQLite foreign-key enforcement is required.')
+    conn.execute('PRAGMA busy_timeout=5000')
     return conn
 
 
@@ -40,12 +53,20 @@ def _ensure_column(cursor, table, column_name, declaration):
     return True
 
 
-def initialize_database(seed=True):
+def initialize_database(seed=True, *, allow_missing_products=False):
     """Creates the necessary tables if they do not exist and seeds initial data."""
     from contextlib import closing
+
+    from flask import has_request_context
+
+    from database.validation import validate_integrity, validate_schema
+    if has_request_context():
+        raise PermissionError('Database migrations require a trusted local maintenance command.')
     with closing(get_db_connection()) as conn:
         with conn:
             conn.execute("BEGIN IMMEDIATE")
+            validate_schema(conn)
+            validate_integrity(conn, allow_missing_products=allow_missing_products)
             _initialize_schema(conn, seed)
             from database.migrations import migrate_identity
             migrate_identity(conn)
@@ -55,6 +76,8 @@ def initialize_database(seed=True):
             migrate_analytics(conn)
             from database.refund_migration import migrate_refunds
             migrate_refunds(conn)
+            validate_schema(conn, require_current=True)
+            validate_integrity(conn, allow_missing_products=allow_missing_products)
 
 
 def _initialize_schema(conn, seed):

@@ -5,6 +5,7 @@ from database.database import get_store_connection as get_db_connection
 from database.tenancy import require_store_write
 from services.inventory_management import UNSET, clean_metadata, whole_number
 from services.money import from_cents, to_cents
+from services.validation import visible_text
 
 
 def _product_from_row(row):
@@ -58,7 +59,7 @@ def search_active_products(search_term):
 
 
 def find_product_by_id(product_id):
-    if not isinstance(product_id, int) or not 0 < product_id <= 9223372036854775807:
+    if isinstance(product_id, bool) or not isinstance(product_id, int) or not 0 < product_id <= 9223372036854775807:
         return None
     with closing(get_db_connection()) as conn:
         row = conn.execute(
@@ -120,8 +121,7 @@ def get_quantity(prompt):
 def create_product(name, price, quantity, *, category_id=None, sku=None, low_stock_threshold=None):
     """Validate and persist one product, returning its new database ID."""
     require_store_write()
-    if not isinstance(name, str) or not 1 <= len(name.strip()) <= 100:
-        raise ValueError("Product name cannot be empty.")
+    name = visible_text(name, "Product name", 100)
 
     try:
         price_cents = to_cents(price)
@@ -160,8 +160,7 @@ def create_product(name, price, quantity, *, category_id=None, sku=None, low_sto
 def update_product_details(product_id, name, price):
     """Update an active product's name and exact cent-denominated price."""
     require_store_write()
-    if not isinstance(name, str) or not 1 <= len(name.strip()) <= 100:
-        raise ValueError("Product name cannot be empty.")
+    name = visible_text(name, "Product name", 100)
 
     try:
         price_cents = to_cents(price)
@@ -244,8 +243,7 @@ def remove_product_by_id(product_id):
 def remove_product_by_name(name):
     """Deactivate one active product by exact, case-insensitive name."""
     require_store_write()
-    if not isinstance(name, str) or not 1 <= len(name.strip()) <= 100:
-        raise ValueError("Product name cannot be empty.")
+    name = visible_text(name, "Product name", 100)
 
     with closing(get_db_connection()) as conn:
         matches = conn.execute(
@@ -465,14 +463,12 @@ def update_product_record(product_id, name, price, quantity, *, category_id=UNSE
     """Save metadata and stock in one transaction; stale web edits are rejected."""
     require_store_write()
     cents = to_cents(price)
-    if not isinstance(name, str) or not 1 <= len(name.strip()) <= 100:
-        raise ValueError("Product name must contain 1–100 characters.")
+    name = visible_text(name, "Product name", 100)
     if not 0 < cents <= 100_000_000:
         raise ValueError("Price must be between $0.01 and $1,000,000.00.")
     if isinstance(quantity, bool) or not isinstance(quantity, int) or not 0 <= quantity <= 1_000_000:
         raise ValueError("Quantity must be a whole number between 0 and 1,000,000.")
-    if not isinstance(reason, str) or not 1 <= len(reason.strip()) <= 500:
-        raise ValueError("Stock change reason must contain 1–500 characters.")
+    reason = visible_text(reason, "Stock change reason", 500, multiline=True)
     with closing(get_db_connection()) as conn:
         with conn:
             conn.execute('BEGIN IMMEDIATE')

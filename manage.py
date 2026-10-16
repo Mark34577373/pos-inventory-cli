@@ -1,5 +1,6 @@
 """Explicit database lifecycle commands; never run destructive reset at startup."""
 import argparse
+import os
 import sqlite3
 from contextlib import closing
 from datetime import timedelta
@@ -18,8 +19,12 @@ def backup_database(destination):
     if not source.exists():
         raise ValueError("Source database does not exist.")
     destination.parent.mkdir(parents=True, exist_ok=True)
+    descriptor = os.open(destination, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    os.close(descriptor)
     with closing(sqlite3.connect(source.as_uri() + '?mode=ro', uri=True)) as conn:
+        conn.execute('PRAGMA foreign_keys=ON')
         with closing(sqlite3.connect(destination)) as target:
+            target.execute('PRAGMA foreign_keys=ON')
             conn.backup(target)
     destination.chmod(0o600)
     return destination
@@ -28,6 +33,7 @@ def backup_database(destination):
 def check_database(path=None):
     source = Path(path or database.DB_FILE).resolve()
     with closing(sqlite3.connect(source.as_uri() + '?mode=ro', uri=True)) as conn:
+        conn.execute('PRAGMA foreign_keys=ON')
         integrity = [row[0] for row in conn.execute("PRAGMA integrity_check")]
         foreign_keys = conn.execute("PRAGMA foreign_key_check").fetchall()
     return integrity == ['ok'] and not foreign_keys, integrity, foreign_keys
@@ -99,8 +105,12 @@ def main():
             if not check_database(args.file)[0]:
                 raise ValueError('Backup fails integrity checks.')
             target.parent.mkdir(parents=True, exist_ok=True)
+            descriptor = os.open(target, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+            os.close(descriptor)
             with closing(sqlite3.connect(Path(args.file).resolve().as_uri() + '?mode=ro', uri=True)) as source:
+                source.execute('PRAGMA foreign_keys=ON')
                 with closing(sqlite3.connect(target)) as destination:
+                    destination.execute('PRAGMA foreign_keys=ON')
                     source.backup(destination)
             target.chmod(0o600)
         elif args.command in ('seed-demo', 'add-public-demo'):
@@ -120,7 +130,7 @@ def main():
             if Path(database.DB_FILE).exists():
                 backup = Path(database.DB_FILE).with_name(Path(database.DB_FILE).name + '.' + business_now().strftime('%Y%m%d%H%M%S%f') + '.backup')
                 print('Backup:', backup_database(backup))
-            database.initialize_database(seed=False)
+            database.initialize_database(seed=False, allow_missing_products=args.command=='repair-missing-products')
             if args.command == 'repair-missing-products':
                 print('Inactive unknown placeholders created:', repair_missing_products())
             ok, integrity, foreign_keys = check_database()

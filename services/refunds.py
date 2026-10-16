@@ -14,6 +14,7 @@ from database.database import get_store_connection
 from database.tenancy import require_store_write
 from services.analytics import ReportLimitError
 from services.money import calculate_tax_cents
+from services.validation import visible_text
 
 MAX_LINES = 1000
 
@@ -131,8 +132,7 @@ def normalize_request(quantities, reason, restock):
         for key, qty in quantities.items()
     ):
         raise ValueError("Refund quantities must be positive whole numbers.")
-    if not isinstance(reason, str) or not 1 <= len(reason.strip()) <= 500:
-        raise ValueError("Enter a refund reason of 1–500 characters.")
+    reason = visible_text(reason, "Refund reason", 500, multiline=True)
     if not isinstance(restock, bool):
         raise ValueError("Choose whether to restock.")
     return {str(key): quantities[key] for key in sorted(quantities)}, reason.strip(), restock

@@ -21,7 +21,7 @@ class Element {
     async fire(type,event = {}) { for (const callback of this.listeners[type] || []) await callback(event); }
     querySelectorAll() { return this.buttons; }
     matches() { return !!this.cartForm; }
-    closest() { return this.exportLink || null; }
+    closest(selector) { return selector==='[data-print]' ? (this.printControl ? this : null) : (this.exportLink || null); }
     click() { this.clicked = true; }
     focus() { this.focused = true; }
     before(element) { (this.beforeNodes ||= []).push(element); }
@@ -242,6 +242,11 @@ export async function runChecks() {
             const retry=submit(form); await env.document.fire('submit',retry);
             assert.equal(retry.defaultPrevented,true);
             assert.equal(env.ids['confirmation-dialog'].open,true);
+        });
+        await check('Print controls use the shared handler without inline JavaScript', async () => {
+            const env=await setup(); const button=new Element(); button.printControl=true;
+            let printed=false; env.window.print=()=>{printed=true;};
+            await env.document.fire('click',{target:button}); assert.equal(printed,true);
         });
         return {passed:names.length,failed:0,checks:names};
     } finally {
