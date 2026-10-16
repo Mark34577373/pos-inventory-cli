@@ -98,13 +98,13 @@
         </div>
 
         {% if payment_rows %}
-            <div class="table-wrap">
+            <div class="table-wrap" role="region" aria-label="Scrollable data table" tabindex="0">
                 <table class="data-table">
                     <thead>
                         <tr>
-                            <th>Method</th>
-                            <th class="text-right">Sales</th>
-                            <th class="text-right">Revenue</th>
+                            <th scope="col">Method</th>
+                            <th class="text-right" scope="col">Sales</th>
+                            <th class="text-right" scope="col">Revenue</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -145,13 +145,13 @@
         </div>
 
         {% if top_product_rows %}
-            <div class="table-wrap">
+            <div class="table-wrap" role="region" aria-label="Scrollable data table" tabindex="0">
                 <table class="data-table">
                     <thead>
                         <tr>
-                            <th>Product</th>
-                            <th class="text-right">Units</th>
-                            <th class="text-right">Sales value</th>
+                            <th scope="col">Product</th>
+                            <th class="text-right" scope="col">Units</th>
+                            <th class="text-right" scope="col">Sales value</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -185,13 +185,13 @@
     </div>
 
     {% if daily_rows %}
-        <div class="table-wrap">
+        <div class="table-wrap" role="region" aria-label="Scrollable data table" tabindex="0">
             <table class="data-table">
                 <thead>
                     <tr>
-                        <th>Date</th>
-                        <th class="text-right">Transactions</th>
-                        <th class="text-right">Revenue</th>
+                        <th scope="col">Date</th>
+                        <th class="text-right" scope="col">Transactions</th>
+                        <th class="text-right" scope="col">Revenue</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -213,10 +213,10 @@
         </div>
     {% else %}
         <div class="empty-state">
-            <span class="empty-state-icon">▥</span>
+            <span class="empty-state-icon" aria-hidden="true">▥</span>
             <h3>No sales in this period</h3>
-            <p>Try a different date range or complete a test sale.</p>
-            <a class="primary-button" href="{{ url_for('sale') }}">Start a sale</a>
+            <p>{{ 'Try a different date range or complete a test sale.' if ui_can_write else 'Try a different date range to browse recorded sales.' }}</p>
+            {% if ui_can_write %}<a class="primary-button" href="{{ url_for('sale') }}">Start a sale</a>{% endif %}
         </div>
     {% endif %}
 </section>
@@ -225,8 +225,8 @@
     <a class="secondary-button" href="{{ url_for('transactions') }}">
         Open transaction history
     </a>
-    <a class="primary-button" href="{{ url_for('sale') }}">
+    {% if ui_can_write %}<a class="primary-button" href="{{ url_for('sale') }}">
         + New sale
-    </a>
+    </a>{% endif %}
 </div>
 {% endblock %}

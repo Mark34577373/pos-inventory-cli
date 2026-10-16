@@ -2,14 +2,14 @@
 {% extends "base.html" %}
 
 {% block title %}New Sale | TCCP{% endblock %}
-{% block page_heading %}New sale{% endblock %}
+{% block page_heading %}{{ 'New sale' if ui_can_write else 'Checkout preview' }}{% endblock %}
 
 {% block content %}
 <section class="sale-intro">
     <div>
         <div class="eyebrow content-eyebrow">POINT OF SALE</div>
-        <h2 class="welcome-title">Create a sale</h2>
-        <p class="muted">Select products, review the cart, and complete checkout.</p>
+        <h2 class="welcome-title">{{ 'Create a sale' if ui_can_write else 'Browse checkout' }}</h2>
+        <p class="muted">{{ 'Select products, review the cart, and complete checkout.' if ui_can_write else 'Explore the product catalog. This workspace is read-only.' }}</p>
     </div>
     <a class="secondary-button" href="{{ url_for('inventory') }}">Manage inventory</a>
 </section>
@@ -28,6 +28,7 @@
             <label class="sr-only" for="sale-search-input">Search products</label>
             <input
                 id="sale-search-input"
+                maxlength="100"
                 type="search"
                 name="q"
                 value="{{ search_term }}"
@@ -68,7 +69,7 @@
                     </div>
                 </div>
 
-                <form method="post" action="{{ url_for('sale_add') }}" class="add-product-form">
+                {% if ui_can_write %}<form method="post" action="{{ url_for('sale_add') }}" class="add-product-form">
 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <input type="hidden" name="product_id" value="{{ product.id }}">
                     <input type="hidden" name="return_q" value="{{ search_term }}">
@@ -93,7 +94,7 @@
                     >
                         Add
                     </button>
-                </form>
+                </form>{% endif %}
             </article>
             {% endfor %}
         </div>
@@ -105,10 +106,10 @@
                 {% if search_term %}
                     Try a different search term.
                 {% else %}
-                    Add products in inventory before creating a sale.
+                    {{ 'Add products in inventory before creating a sale.' if ui_can_write else 'No products are available in this read-only view.' }}
                 {% endif %}
             </p>
-            <a class="primary-button" href="{{ url_for('add_product') }}">Add a product</a>
+            {% if ui_can_write %}<a class="primary-button" href="{{ url_for('add_product') }}">Add a product</a>{% endif %}
         </div>
         {% endif %}
     <nav class="no-print" aria-label="Product pages">{% if pagination.previous %}<a href="{{ pagination.previous }}">Previous products</a>{% endif %} {% if pagination.next %}<a href="{{ pagination.next }}">More products</a>{% endif %}</nav>
@@ -129,7 +130,7 @@
             <strong>Unavailable cart entries</strong>
             <p>{{ unavailable_items|join(", ") }}</p>
             <p>Clear this cart to remove unavailable entries.</p>
-            <form method="post" action="{{ url_for('sale_cancel') }}" onsubmit="return confirm('Clear this cart?');"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="secondary-button">Clear cart</button></form>
+            {% if ui_can_write %}<form method="post" action="{{ url_for('sale_cancel') }}" data-confirm="Clear this cart?"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="secondary-button">Clear cart</button></form>{% endif %}
         </div>
         {% endif %}
 
@@ -157,7 +158,7 @@
                 {% endif %}
 
                 <div class="cart-item-actions">
-                    <form
+                    {% if ui_can_write %}<form
                         method="post"
                         action="{{ url_for('sale_update', product_id=item.product.id) }}"
                         class="cart-quantity-form"
@@ -177,15 +178,15 @@
                         <button class="small-button" type="submit" name="adjust" value="minus" aria-label="Decrease quantity for {{ item.product.name }}">−</button>
                         <button class="small-button" type="submit">Update</button>
                         <button class="small-button" type="submit" name="adjust" value="plus" aria-label="Increase quantity for {{ item.product.name }}">+</button>
-                    </form>
+                    </form>{% endif %}
 
-                    <form
+                    {% if ui_can_write %}<form
                         method="post"
                         action="{{ url_for('sale_remove', product_id=item.product.id) }}"
                     >
 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         <button class="remove-link" type="submit">Remove</button>
-                    </form>
+                    </form>{% endif %}
                 </div>
             </article>
             {% endfor %}
@@ -206,7 +207,7 @@
             </div>
         </div>
 
-        <form method="post" action="{{ url_for('sale_checkout') }}" class="checkout-form">
+        {% if ui_can_write %}<form method="post" action="{{ url_for('sale_checkout') }}" class="checkout-form" data-confirm="Record this simulated sale? Review the total and payment method before continuing.">
 <input type="hidden" name="checkout_token" value="{{ session.get('checkout_token', '') }}">
 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="form-field">
@@ -249,19 +250,19 @@
             >
                 Complete sale · {{ total_cents|money }}
             </button>
-        </form>
+        </form>{% endif %}
 
-        <form method="post" action="{{ url_for('sale_cancel') }}"
-              onsubmit="return confirm('Cancel this sale and clear the cart?');">
+        {% if ui_can_write %}<form method="post" action="{{ url_for('sale_cancel') }}"
+              data-confirm="Cancel this sale and clear the cart?">
 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button class="cancel-sale-button" type="submit">Cancel sale</button>
-        </form>
+        </form>{% endif %}
 
         {% else %}
         <div class="empty-cart">
             <div class="empty-cart-icon">＋</div>
-            <h3>Your cart is empty</h3>
-            <p class="muted">Add a product from the list to begin a sale.</p>
+            <h3>{{ 'Your cart is empty' if ui_can_write else 'Read-only checkout preview' }}</h3>
+            <p class="muted">{{ 'Add a product from the list to begin a sale.' if ui_can_write else 'Browse fictional products here. Sign in to a writable private store to create a cart and record simulated sales.' }}</p>
         </div>
         {% endif %}
     </aside>

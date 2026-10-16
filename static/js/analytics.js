@@ -15,12 +15,4 @@
         const field = document.getElementById(id);
         if (field && preset) field.addEventListener("change", () => { preset.value = "custom"; });
     });
-    const form = document.getElementById("analytics-filters");
-    if (form) form.addEventListener("submit", () => {
-        const submit = form.querySelector("button[type=submit]");
-        if (submit) {
-            submit.disabled = true;
-            submit.textContent = "Loading analytics…";
-        }
-    });
 })();

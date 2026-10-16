@@ -14,9 +14,9 @@
         </p>
     </div>
 
-    <a class="primary-button" href="{{ url_for('sale') }}">
+    {% if ui_can_write %}<a class="primary-button" href="{{ url_for('sale') }}">
         + New sale
-    </a>
+    </a>{% endif %}
 </section>
 
 <section class="stats-grid stats-grid-2">
@@ -93,15 +93,15 @@
     </form>
 
     {% if transactions %}
-        <div class="table-wrap">
+        <div class="table-wrap" role="region" aria-label="Scrollable data table" tabindex="0">
             <table class="data-table">
                 <thead>
                     <tr>
-                        <th>Transaction</th>
-                        <th>Date and time</th>
-                        <th>Payment</th><th>Status / refunds</th>
-                        <th class="text-right">Total</th>
-                        <th></th>
+                        <th scope="col">Transaction</th>
+                        <th scope="col">Date and time</th>
+                        <th scope="col">Payment</th><th scope="col">Status / refunds</th>
+                        <th class="text-right" scope="col">Total</th>
+                        <th scope="col"></th>
                     </tr>
                 </thead>
                 <tbody>
@@ -119,7 +119,7 @@
                                 {% endif %}
                             </span>
                         </td>
-                        <td>{{ transaction.status|title }}<small class="table-id">Refunded {{ transaction.refunded_cents|money }}</small></td>
+                        <td><span class="status-badge status-{{ transaction.status }}">{{ 'Partially refunded' if transaction.status=='partial' else ('Fully refunded' if transaction.status=='refunded' else 'Completed') }}</span><small class="table-id">Refunded {{ transaction.refunded_cents|money }}</small></td>
                         <td class="text-right">
                             <strong>
                                 {{ transaction["total_cents"]|money }}
@@ -144,10 +144,10 @@
         </p>
     {% else %}
         <div class="empty-state">
-            <span class="empty-state-icon">▧</span>
+            <span class="empty-state-icon" aria-hidden="true">▧</span>
             <h3>No transactions found</h3>
-            <p>Try changing your filters or complete a sale first.</p>
-            <a class="primary-button" href="{{ url_for('sale') }}">Start a sale</a>
+            <p>{{ 'Try changing your filters or complete a sale first.' if ui_can_write else 'Try changing your filters to browse recorded transactions.' }}</p>
+            {% if ui_can_write %}<a class="primary-button" href="{{ url_for('sale') }}">Start a sale</a>{% endif %}
         </div>
     {% endif %}
 <nav class="inventory-pagination" aria-label="Transaction pages">{% if pagination.previous %}<a class="secondary-button" href="{{ pagination.previous }}">Previous</a>{% endif %}<span>Page {{ page }} of {{ pages }}</span>{% if pagination.next %}<a class="secondary-button" href="{{ pagination.next }}">Next</a>{% endif %}</nav>

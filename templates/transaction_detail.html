@@ -58,14 +58,14 @@
     </div>
 
     {% if items %}
-        <div class="table-wrap">
+        <div class="table-wrap" role="region" aria-label="Scrollable data table" tabindex="0">
             <table class="data-table">
                 <thead>
                     <tr>
-                        <th>Product</th>
-                        <th class="text-right">Unit price</th>
-                        <th class="text-right">Quantity</th>
-                        <th class="text-right">Line total</th>
+                        <th scope="col">Product</th>
+                        <th class="text-right" scope="col">Unit price</th>
+                        <th class="text-right" scope="col">Quantity</th>
+                        <th class="text-right" scope="col">Line total</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -116,7 +116,7 @@
 {% if refund_state.eligible and refund_state.status != 'refunded' and not g.is_demo and not config.DEMO_READ_ONLY %}<a class="secondary-button" href="{{ url_for('refunds.refund_form', transaction_id=transaction.id) }}">Simulated refund / return</a>{% elif not refund_state.eligible %}<p>This historical sale cannot be reconciled and is not eligible for refunds.</p>{% endif %}</div>
 <h4>Refund history</h4>{% for refund in refund_state.history %}<p><a href="{{ url_for('refunds.detail', refund_id=refund.id) }}">Refund #{{ refund.id }}</a> · {{ refund.recorded_at }} UTC · {{ refund.total_cents|money }} · {{ refund.reason }} · {{ 'Restocked' if refund.restock else 'Not restocked' }}</p>{% else %}<p>No refunds recorded.</p>{% endfor %}{% if refund_state.count>100 %}<p>Latest 100 shown; export the full ledger by refund date from analytics.</p>{% endif %}</section>
 <div class="page-actions">
-    <a class="primary-button" href="{{ url_for('sale') }}">Start another sale</a>
+    {% if ui_can_write %}<a class="primary-button" href="{{ url_for('sale') }}">Start another sale</a>{% endif %}
     <a class="secondary-button" href="{{ url_for('reports') }}">View reports</a>
 </div>
 {% endblock %}

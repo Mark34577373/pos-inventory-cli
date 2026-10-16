@@ -159,3 +159,13 @@ The approved tax policy allocates original tax cents to original units using pro
 Migration **17** is additive and preserves existing sale/stock history. Stop writers, run `.venv/bin/python manage.py init` (creates a backup), then `.venv/bin/python manage.py check` before starting upgraded web or desktop clients. Production now requires migration 17. No working database is automatically migrated during this development task. No new dependencies are required.
 
 See [Day 17 financial rules, workflows, security, migration and recovery](docs/DAY17.md). Earlier milestone documentation describes those milestones at completion; Day 17 supersedes their statements that refunds are unsupported or that production only requires migration 15/16.
+
+## Day 18 UI/UX polish
+
+The Flask interface now shares a light navy-and-blue design system: consistent cards, forms, tables, badges, alerts and responsive spacing. Navigation shows the active section and becomes a keyboard-accessible mobile menu. Read-only demo/owner pages omit business write controls while retaining server-side authorization checks.
+
+Checkout and destructive actions use a shared confirmation dialog; cart totals remain server-calculated. Loading feedback covers forms, cart updates and CSV downloads, with duplicate-submit guards, network recovery and accessible announcements. Error summaries preserve safe input, authentication supports password visibility controls, tables/charts offer keyboard scrolling, and receipt printing remains supported.
+
+Run `.venv/bin/python -m pytest -q` and `.venv/bin/ruff check .`. Optional dependency-free frontend interaction checks run with `node tests/frontend_checks.mjs` (Node 20+). No new Python/npm dependency or database migration is required.
+
+See [Day 18 design system, page changes, accessibility and manual QA](docs/DAY18.md). No interactive browser was available during implementation; visual checks at 320/375/768/1024/1440px, actual screen-reader/modal behavior and print-preview QA remain manual. Automated contrast/HTML/interaction checks do not establish full WCAG compliance.

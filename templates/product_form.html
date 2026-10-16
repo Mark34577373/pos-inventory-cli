@@ -29,7 +29,8 @@
             </p>
         </div>
 
-        <form method="post" class="product-form">
+        {% if not ui_can_write %}<p class="demo-banner">Product changes are unavailable in read-only mode. You can browse inventory and stock history.</p>{% endif %}
+        {% if ui_can_write %}<form method="post" class="product-form">
 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="form-field">
                 <label for="name">Product name</label>
@@ -84,7 +85,7 @@
                 <div class="form-field"><label for="product-sku">SKU (optional)</label><input id="product-sku" name="sku" maxlength="64" value="{{ form_values.get('sku', product.sku or '' if product else '') }}"><small class="field-help">Letters, digits, dots, hyphens, underscores; unique within this store.</small></div>
                 <div class="form-field"><label for="product-threshold">Low-stock threshold</label><input id="product-threshold" name="low_stock_threshold" type="number" min="0" max="1000000" step="1" placeholder="Default: 5" value="{{ form_values.get('low_stock_threshold', product.low_stock_threshold if product and product.low_stock_threshold is not none else '') }}"><small class="field-help">Blank uses 5. Zero only warns when out of stock.</small></div>
             </div>
-            {% if product %}<div class="form-field"><label for="stock-reason">Stock correction reason</label><input id="stock-reason" name="reason" maxlength="500" value="Stock corrected during product edit" required></div>{% endif %}
+            {% if product %}<div class="form-field"><label for="stock-reason">Stock correction reason</label><input id="stock-reason" name="reason" maxlength="500" value="{{ request.form.get('reason', 'Stock corrected during product edit') }}" required></div>{% endif %}
             <div class="form-note">
                 <span class="note-icon">i</span>
                 <p>Prices are saved to the nearest cent. A quantity of zero marks the product as out of stock.</p>
@@ -96,7 +97,7 @@
                     {% if mode == "create" %}Create product{% else %}Save changes{% endif %}
                 </button>
             </div>
-        </form>
+        </form>{% endif %}
     </div>
 </section>
 {% endblock %}

@@ -139,19 +139,25 @@ def protect_writes():
 @app.errorhandler(sqlite3.Error)
 def database_error(error):
     app.logger.error("Database operation failed (%s)", type(error).__name__)
-    return render_template("error.html", message="The database is unavailable. Please retry shortly."), 503
+    return render_template("error.html", message="The database is unavailable. Please retry shortly.", status_code=503), 503
 
 
 @app.errorhandler(500)
 def unexpected_error(error):
-    return render_template("error.html", message="An unexpected error occurred. Please refresh and retry."), 500
+    return render_template("error.html", message="An unexpected error occurred. Please refresh and retry.", status_code=500), 500
 
 
+@app.errorhandler(401)
+@app.errorhandler(405)
+@app.errorhandler(429)
 @app.errorhandler(400)
 @app.errorhandler(403)
 @app.errorhandler(413)
 def request_error(error):
-    return render_template("error.html", message=error.description), error.code
+    response = error.get_response()
+    response.set_data(render_template("error.html", message=error.description, status_code=error.code))
+    response.content_type = "text/html; charset=utf-8"
+    return response
 
 
 @app.after_request
@@ -424,6 +430,14 @@ def inventory():
         return render_template('error.html',message=str(error)),400
     return render_template('inventory.html',filters=filters,categories=list_categories(),search_term=filters['q'],
                            pagination=pagination_links('inventory',filters,data),**data)
+
+
+@app.context_processor
+def ui_context():
+    # Presentation only. Routes and services remain the authorization boundary.
+    return {'ui_can_write': bool(getattr(g, 'user', None) and getattr(g, 'store', None)
+                                and not getattr(g, 'is_demo', False)
+                                and not app.config['DEMO_READ_ONLY'])}
 
 
 @app.context_processor

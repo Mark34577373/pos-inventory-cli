@@ -5,7 +5,7 @@
 <h2>{{ g.store.name }} · Refund #{{ refund.id }}</h2>
 <p>Original transaction #{{ refund.transaction_id }} · {{ refund.recorded_at }} (UTC)</p>
 <p>Status: {{ refund.status }} · No real money was moved.</p>
-<table class="data-table"><thead><tr><th>Historical product</th><th>Quantity</th><th>Refund including tax</th></tr></thead><tbody>{% for item in items %}<tr><td>{{ item.product_name }}</td><td>{{ item.quantity }}</td><td>{{ item.total_cents|money }}</td></tr>{% endfor %}</tbody></table>
+<div class="table-wrap" role="region" aria-label="Refund items" tabindex="0"><table class="data-table"><thead><tr><th scope="col">Historical product</th><th scope="col">Quantity</th><th scope="col">Refund including tax</th></tr></thead><tbody>{% for item in items %}<tr><td>{{ item.product_name }}</td><td>{{ item.quantity }}</td><td>{{ item.total_cents|money }}</td></tr>{% endfor %}</tbody></table></div>
 <p>Tax: {{ refund.tax_cents|money }} · <strong>Total: {{ refund.total_cents|money }}</strong></p>
 <p>Reason: {{ refund.reason }}</p><p>{{ 'Units restocked; inactive products stay inactive.' if refund.restock else 'No stock restored.' }}</p>
 <div class="no-print"><a class="secondary-button" href="{{ url_for('transaction_detail', transaction_id=refund.transaction_id) }}">Original sale and refund history</a> <a class="secondary-button" href="{{ url_for('transaction_receipt', transaction_id=refund.transaction_id) }}">Sale receipt</a><button class="small-button" type="button" onclick="window.print()">Print refund</button></div>

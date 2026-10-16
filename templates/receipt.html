@@ -132,9 +132,9 @@
             Print receipt
         </button>
 
-        <a class="secondary-button" href="{{ url_for('sale') }}">
+        {% if ui_can_write %}<a class="secondary-button" href="{{ url_for('sale') }}">
             Start another sale
-        </a>
+        </a>{% endif %}
 
         <a class="text-link" href="{{ url_for('dashboard') }}">
             Return to dashboard
