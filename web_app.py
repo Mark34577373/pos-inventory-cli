@@ -17,6 +17,7 @@ from flask import (
     session,
     url_for,
 )
+from werkzeug.exceptions import SecurityError
 
 from auth_routes import bp as auth_blueprint
 from config import TAX_RATE, business_now
@@ -46,6 +47,8 @@ app.config.update(
     MAX_CONTENT_LENGTH=64 * 1024,
     PERMANENT_SESSION_LIFETIME=timedelta(hours=8),
     SESSION_REFRESH_EACH_REQUEST=False,
+    REGISTRATION_ENABLED=os.environ.get('TCCP_ALLOW_REGISTRATION', '1') == '1',
+    TRUSTED_HOSTS=[host.strip() for host in os.environ.get('TCCP_TRUSTED_HOSTS', '').split(',') if host.strip()] or None,
     DEMO_READ_ONLY=os.environ.get("TCCP_READ_ONLY", "1" if os.environ.get("TCCP_ENV") == "production" else "0") == "1",
 )
 if os.environ.get("TCCP_ENV") == "production" and len(os.environ.get("TCCP_SECRET_KEY", "")) < 32:
@@ -123,6 +126,12 @@ def protect_writes():
 def database_error(error):
     app.logger.error("Database operation failed (%s)", type(error).__name__)
     return render_template("error.html", message="The database is unavailable. Please retry shortly."), 503
+
+
+@app.errorhandler(SecurityError)
+def invalid_host(error):
+    # Invalid hosts have no URL adapter; rendering base.html would call url_for.
+    return 'Invalid request host.', 400
 
 
 @app.errorhandler(500)

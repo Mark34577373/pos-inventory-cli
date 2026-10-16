@@ -125,3 +125,9 @@ Set `TCCP_DB_PATH` explicitly first. No real data is copied into the demo; exist
 Authentication and throttling persist in SQLite across workers and restarts; keep the production secret stable, use HTTPS and a private persistent local disk, and do not log credentials or cookies. Local development uses the same limiter. Passwords use Werkzeug scrypt; new passphrases must contain 15–128 characters. Email validation checks format, not mailbox ownership. There is no email verification, recovery, MFA, staff invitation, or multi-store switcher yet.
 
 See [Day 14 design and security notes](docs/DAY14.md) for the route audit, ownership constraints, migration details, limiter settings, demo behavior, security references, and deployment limitations.
+
+For a disposable, read-only portfolio demo on Render Free, use the explicit
+[Render Free bootstrap guide](docs/RENDER_FREE.md). It initializes a separate
+fictional database before Gunicorn, closes registration, and preserves existing
+demo rows when the file survives a restart. Render Free storage is ephemeral;
+this profile must not hold real business data or permit public business writes.

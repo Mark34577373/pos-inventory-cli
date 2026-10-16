@@ -1,5 +1,6 @@
 """Explicit database lifecycle commands; never run destructive reset at startup."""
 import argparse
+import os
 import sqlite3
 from contextlib import closing
 from datetime import timedelta
@@ -74,14 +75,78 @@ def seed_demo(allow_existing=False):
                     conn.execute('UPDATE products SET quantity=quantity-1 WHERE id=? AND store_id=?',(product,store))
 
 
+def prepare_render_demo():
+    """Opt-in bootstrap for a disposable, read-only Render Free demonstration."""
+    import fcntl
+
+    required = {'TCCP_ENV': 'production', 'TCCP_READ_ONLY': '1',
+                'TCCP_ALLOW_REGISTRATION': '0', 'TCCP_EPHEMERAL_DEMO': '1'}
+    if any(os.environ.get(key) != value for key, value in required.items()):
+        raise ValueError('Render demo requires production, read-only, closed registration and explicit ephemeral-demo opt-in.')
+    if len(os.environ.get('TCCP_SECRET_KEY', '').strip()) < 32:
+        raise ValueError('Production requires TCCP_SECRET_KEY of at least 32 characters.')
+    configured = os.environ.get('TCCP_DB_PATH', '')
+    path = Path(configured)
+    root = Path('/tmp').resolve()
+    if (not path.is_absolute() or path.name != 'demo.db'
+            or not path.resolve().is_relative_to(root)
+            or path.resolve() == root / 'demo.db'
+            or Path(database.DB_FILE).resolve() != path.resolve()
+            or path.is_symlink() or path.parent.is_symlink()):
+        raise ValueError('Ephemeral demo requires its own /tmp subdirectory and a demo.db filename.')
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    # Serialize bootstrap processes; release before Gunicorn starts.
+    with open(path.parent / '.bootstrap.lock', 'a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        current = False
+        if path.exists():
+            with closing(sqlite3.connect(path.resolve().as_uri() + '?mode=ro', uri=True)) as conn:
+                tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+                if tables and not {'products', 'transactions', 'transaction_items'}.issubset(tables):
+                    raise ValueError('Refusing an unrelated database.')
+                if 'users' in tables and conn.execute('SELECT 1 FROM users LIMIT 1').fetchone():
+                    raise ValueError('Refusing a database containing private accounts.')
+                if 'stores' in tables and conn.execute("SELECT 1 FROM stores WHERE kind='private' LIMIT 1").fetchone():
+                    raise ValueError('Refusing a database containing private stores.')
+                for table in ('products', 'transactions', 'transaction_items'):
+                    if table not in tables:
+                        continue
+                    columns = {row[1] for row in conn.execute(f'PRAGMA table_info({table})')}
+                    if 'stores' in tables and 'store_id' in columns:
+                        unsafe = conn.execute(f"SELECT 1 FROM {table} r WHERE NOT EXISTS (SELECT 1 FROM stores s WHERE s.id=r.store_id AND s.kind='demo') LIMIT 1").fetchone()
+                    else:
+                        unsafe = conn.execute(f'SELECT 1 FROM {table} LIMIT 1').fetchone()
+                    if unsafe:
+                        raise ValueError('Refusing non-demo business records; nothing was changed.')
+                if 'schema_migrations' in tables:
+                    current = conn.execute('SELECT 1 FROM schema_migrations WHERE version=14').fetchone() is not None
+            if not current:
+                backup_database(path.with_name('demo.before-bootstrap.' + business_now().strftime('%Y%m%d%H%M%S%f') + '.backup'))
+        if not current:
+            database.initialize_database(seed=False)
+        if not check_database()[0]:
+            raise ValueError('Demo database integrity check failed.')
+        with closing(database.get_db_connection()) as conn:
+            has_demo = conn.execute("SELECT 1 FROM stores WHERE kind='demo'").fetchone() is not None
+        if not has_demo:
+            # Existing seeder is transactional and refuses duplicate demo stores.
+            seed_demo()
+        path.chmod(0o600)
+        if not check_database()[0]:
+            raise ValueError('Demo database integrity check failed after bootstrap.')
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command', choices=['init', 'check', 'backup', 'restore', 'repair-missing-products', 'seed-demo', 'add-public-demo', 'assign-legacy-owner'])
+    parser.add_argument('command', choices=['init', 'check', 'backup', 'restore', 'repair-missing-products', 'seed-demo', 'add-public-demo', 'assign-legacy-owner', 'prepare-render-demo'])
     parser.add_argument('--file', help='Backup destination or restore source')
     parser.add_argument('--email', help='Existing registered owner for explicit legacy assignment')
     args = parser.parse_args()
     try:
-        if args.command == 'check':
+        if args.command == 'prepare-render-demo':
+            prepare_render_demo()
+            print('Read-only fictional demo database ready.')
+        elif args.command == 'check':
             ok, integrity, foreign_keys = check_database()
             print('Integrity:', integrity, 'Foreign-key violations:', foreign_keys)
             return 0 if ok else 1
