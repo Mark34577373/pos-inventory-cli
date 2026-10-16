@@ -1,0 +1,16 @@
+{% extends 'base.html' %}
+{% block title %}Fictional receipt | TCCP Demo{% endblock %}
+{% block content %}
+<section class="receipt-page interactive-demo-receipt">
+    <article class="receipt-paper">
+        <header class="receipt-header"><div class="receipt-brand-mark">T</div><h1>TCCP Demo Store</h1><h2>Fictional demonstration receipt</h2><p>Not proof of purchase. No real payment or inventory movement occurred.</p></header>
+        <div class="receipt-metadata"><div><span>Demonstration identifier</span><strong>{{ receipt.identifier }}</strong></div><div><span>Date ({{ demo_timezone }})</span><strong>{{ receipt.timestamp }}</strong></div><div><span>Simulated payment</span><strong>{{ receipt.payment_method }} (simulated)</strong></div></div>
+        <div class="receipt-divider"></div>
+        <div class="receipt-items">{% for item in receipt.lines %}<div class="receipt-line"><div><strong>{{ item.name }}</strong><small>{{ item.quantity }} × {{ item.price_cents|money }}</small></div><strong>{{ item.line_total_cents|money }}</strong></div>{% endfor %}</div>
+        <div class="cart-totals"><div><span>Subtotal</span><strong>{{ receipt.subtotal_cents|money }}</strong></div><div><span>Discount</span><strong>−{{ receipt.discount_cents|money }}</strong></div><div><span>Tax (8.25%)</span><strong>{{ receipt.tax_cents|money }}</strong></div><div class="cart-grand-total"><span>Simulated total</span><strong>{{ receipt.total_cents|money }}</strong></div>
+        {% if receipt.cash_received_cents is not none %}<div><span>Fictional cash received</span><strong>{{ receipt.cash_received_cents|money }}</strong></div><div><span>Fictional change</span><strong>{{ receipt.change_cents|money }}</strong></div>{% endif %}</div>
+        <p>Interactive demo — All payments and transactions are simulated. No real purchases are made.</p>
+    </article>
+    <div class="form-actions no-print"><button type="button" class="primary-button" data-print>Print fictional receipt</button><a class="secondary-button" href="{{ url_for('interactive_demo.catalog') }}">Start new sale</a><form method="post" action="{{ url_for('interactive_demo.reset') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="secondary-button" type="submit">Reset demo</button></form></div>
+</section>
+{% endblock %}

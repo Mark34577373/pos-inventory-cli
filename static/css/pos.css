@@ -210,5 +210,13 @@
 @media(max-width:767px) { .pos-toolbar-actions [data-pos-search] { display:inline-flex; } }
 /* Anchor quantity controls to their own tile rather than the viewport. */
 .pos-workspace .pos-tile { position:relative; }
+
+/* The isolated public demo reuses the workstation sizing and payment scroll dock. */
+.pos-workspace .demo-product-form { display:block; margin:0; width:100%; }
+.pos-workspace .demo-quantity { width:64px; min-width:44px; min-height:44px; }
+.demo-checkout-form { display:grid; gap:10px; }
+.demo-checkout-form input,.demo-checkout-form select { width:100%; min-width:0; }
+.interactive-demo-receipt { width:min(100%,780px); margin:24px auto; padding:16px; }
+@media print { .interactive-demo-receipt { width:100%; padding:0; margin:0; } }
 /* Wrapped headers must not sit underneath the simulated-payment banner. */
 .workspace-pos .demo-banner { position:static; flex-shrink:0; margin:0; padding:4px 20px; }

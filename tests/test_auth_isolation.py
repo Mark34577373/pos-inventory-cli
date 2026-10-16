@@ -252,7 +252,20 @@ class AuthIsolationTests(unittest.TestCase):
         self.assertEqual(response.location, "/inventory?q=abc")
 
     def test_all_private_routes_block_anonymous_without_side_effects(self):
+        public_demo = {'interactive_demo.catalog', 'interactive_demo.cart',
+                       'interactive_demo.discount', 'interactive_demo.cash_preview',
+                       'interactive_demo.checkout', 'interactive_demo.receipt',
+                       'interactive_demo.reset', 'interactive_demo.clear'}
         for rule in app.url_map.iter_rules():
+            if rule.endpoint.startswith('interactive_demo.'):
+                # These new public simulation routes still reject every POST without CSRF.
+                self.assertIn(rule.endpoint, public_demo)
+                if 'GET' in rule.methods:
+                    self.assertEqual(self.client.get(rule.rule).status_code,
+                                     404 if rule.endpoint == 'interactive_demo.receipt' else 200)
+                if 'POST' in rule.methods:
+                    self.assertEqual(self.client.post(rule.rule, data={}).status_code, 400)
+                continue
             if (
                 rule.endpoint.startswith("auth.")
                 and rule.endpoint != "auth.account"

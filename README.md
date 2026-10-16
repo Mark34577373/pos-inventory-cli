@@ -432,3 +432,13 @@ For a disposable, read-only portfolio demo on Render Free, use the explicit
 fictional database before Gunicorn, closes registration, and preserves existing
 demo rows when the file survives a restart. Render Free storage is ephemeral;
 this profile must not hold real business data or permit public business writes.
+
+### Day 28C: interactive fictional checkout
+
+Visit `/demo/pos` (also linked on login) for an independent temporary cart,
+server-calculated discounts/tax, simulated cash/card checkout and a printable
+fictional receipt. This flow never reads or writes business records or deducts
+shared inventory. The existing business demo stays read-only. State expires after
+30 minutes idle or a worker restart; keep one Gunicorn worker and two threads.
+No environment change or database migration is required. See
+[Day 28C architecture, tests and deployment notes](docs/DAY28C_INTERACTIVE_DEMO.md).

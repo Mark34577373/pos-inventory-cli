@@ -27,6 +27,7 @@ from config import BUSINESS_TIMEZONE, business_now
 from customer_routes import bp as customers_blueprint
 from database.database import get_store_connection as get_db_connection
 from database.database import initialize_database
+from demo_routes import bp as interactive_demo_blueprint
 from inventory_routes import bp as inventory_blueprint
 from inventory_routes import pagination_links
 from pos_routes import bp as pos_blueprint
@@ -68,6 +69,7 @@ app.register_blueprint(customers_blueprint)
 app.register_blueprint(alerts_blueprint)
 app.register_blueprint(settings_blueprint)
 app.register_blueprint(auth_blueprint)
+app.register_blueprint(interactive_demo_blueprint)
 app.register_blueprint(analytics_blueprint)
 app.register_blueprint(inventory_blueprint)
 app.register_blueprint(refund_blueprint)
@@ -141,17 +143,21 @@ def protect_writes():
     g.user = None
     g.store = None
     g.is_demo = False
+    g.is_interactive_demo = request.blueprint == 'interactive_demo'
     unsafe = request.method not in ('GET', 'HEAD', 'OPTIONS')
     public = {'static', 'auth.login', 'auth.register', 'auth.demo', 'auth.logout', 'auth.stores'}
+    if g.is_interactive_demo:
+        public.add(request.endpoint)
     if request.endpoint == 'static':
         return None
-    identity = load_identity(session.get('login_token'))
+    # The standalone simulation never loads business identities or reads SQLite.
+    identity = None if g.is_interactive_demo else load_identity(session.get('login_token'))
     if identity:
         g.user = {'id': identity['user_id'], 'email': identity['email']}
         g.store = {'id': identity['id'], 'name': identity['name'], 'kind': identity['kind']}
-    elif session.get('login_token'):
+    elif session.get('login_token') and not g.is_interactive_demo:
         session.clear()
-    elif session.get('demo_mode'):
+    elif session.get('demo_mode') and not g.is_interactive_demo:
         from contextlib import closing
 
         from database.database import get_db_connection as raw_connection

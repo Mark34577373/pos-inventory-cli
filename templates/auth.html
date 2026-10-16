@@ -29,6 +29,7 @@
         <button class="primary-button" type="submit">{{ 'Create account' if mode == 'register' else 'Sign in' }}</button>
     </form>
     <p class="auth-link">{% if mode == 'register' %}Already have an account? <a class="text-link" href="{{ url_for('auth.login') }}">Sign in</a>{% elif config.REGISTRATION_ENABLED %}New to TCCP? <a class="text-link" href="{{ url_for('auth.register') }}">Create an account</a>{% else %}Account registration is closed on this deployment.{% endif %}</p>
+    <p><a class="primary-button" href="{{ url_for('interactive_demo.catalog') }}">Try interactive simulated checkout</a></p>
     <form action="{{ url_for('auth.demo') }}" method="post"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="secondary-button" type="submit">Explore the read-only demo</button></form>
 </div>
 </section>

@@ -1,0 +1,72 @@
+{% extends 'base.html' %}
+{% from 'components/pos.html' import icon, category_link %}
+{% macro csrf() %}<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">{% endmacro %}
+{% block title %}Interactive simulated checkout | TCCP{% endblock %}
+{% block content %}
+<nav class="pos-toolbar" aria-label="Demo checkout tools">
+    <a class="pos-wordmark" href="{{ url_for('interactive_demo.catalog') }}"><span class="pos-brand-mark">T</span><span>TCCP</span></a>
+    <div class="pos-store-identity"><h1 class="pos-store-title">TCCP Demo Store</h1><small>Hybrid Retail · Your private, temporary simulation · Expires after 30 minutes idle</small></div>
+    <div class="pos-toolbar-actions"><button class="secondary-button" type="button" data-pos-search>{{ icon('search') }} Search <kbd>F2</kbd></button><a class="secondary-button" href="{{ url_for('auth.login') }}">Sign in</a>
+        <form method="post" action="{{ url_for('interactive_demo.reset') }}" data-confirm="Reset your fictional cart and receipt?">{{ csrf() }}<button class="secondary-button" type="submit">Reset demo</button></form>
+    </div>
+</nav>
+<div id="pos-feedback" class="pos-feedback" aria-label="Demo feedback"></div>
+{% if error %}<div class="cart-warning" role="alert" tabindex="-1">{{ error }}</div>{% endif %}
+<div class="sale-layout pos-workspace pos-hybrid density-comfortable" data-pos-workspace>
+    <a class="mobile-cart-jump primary-button" href="#pos-cart" data-open-cart>Current sale · {{ quote.lines|length }} lines · {{ quote.total_cents|money }} ↑</a>
+    <nav class="pos-categories" aria-label="Fictional product categories"><details open><summary>Browse categories</summary><div class="category-links">
+        <p class="category-caption">FICTIONAL CATALOG</p>{{ category_link(url_for('interactive_demo.catalog'),'All products',not selected_category,'all') }}
+        {% for category in categories %}{{ category_link(url_for('interactive_demo.catalog',category=category),category,category==selected_category) }}{% endfor %}
+        <a class="pos-category-item" href="#pos-cart" data-open-cart>{{ icon('cart') }} Current sale <small>Alt+C</small></a>
+    </div></details></nav>
+    <section class="sale-products-panel" aria-labelledby="demo-products-heading">
+        <div class="panel-heading"><div><h2 id="demo-products-heading">Fictional products</h2><p class="muted">Tap to add one. Availability is simulated and never deducted.</p></div><span class="result-count">{{ products|length }} shown</span></div>
+        <form class="sale-search" method="get" action="{{ url_for('interactive_demo.catalog') }}">
+            <label class="sr-only" for="sale-search-input">Search fictional products or demo SKU</label><div class="pos-search-field">{{ icon('search') }}<input id="sale-search-input" type="search" name="q" value="{{ search_term }}" maxlength="100" placeholder="Search fictional products or demo SKU…"><kbd>F2</kbd></div>
+            <input type="hidden" name="category" value="{{ selected_category }}"><button class="secondary-button" type="submit">Search</button>
+            {% if search_term or selected_category %}<a href="{{ url_for('interactive_demo.catalog') }}">Clear</a>{% endif %}
+        </form>
+        <div class="sale-product-list">
+        {% for product in products %}<article class="sale-product-card pos-tile color-blue">
+            <form method="post" action="{{ url_for('interactive_demo.cart') }}" class="demo-product-form tile-form">{{ csrf() }}<input type="hidden" name="product_id" value="{{ product.id }}"><input type="hidden" name="quantity" value="1"><input type="hidden" name="action" value="add">
+                <button class="product-tap" type="submit" aria-label="Add one {{ product.name }}" {% if not product.quantity %}disabled{% endif %}>
+                    <span class="product-initial" aria-hidden="true">{{ icon('product') }}</span><span class="sale-product-info"><strong class="tile-name">{{ product.name }}</strong><span class="tile-meta">{{ product.category }} · {{ product.id }}</span><span class="sale-product-price">{{ product.price_cents|money }}</span><span class="stock-pill stock-{{ 'out' if not product.quantity else ('low' if product.quantity<=3 else 'good') }}">{{ product.quantity|string ~ ' available (fictional)' if product.quantity else 'Out of stock (fictional)' }}</span></span>
+                </button>
+            </form>
+        </article>{% else %}<div class="empty-state"><h3>No fictional products found</h3><p>Try another name or category.</p></div>{% endfor %}
+        </div>
+    </section>
+    <aside class="sale-cart-panel" id="pos-cart" tabindex="-1" aria-label="Your temporary demo cart">
+    <details class="pos-cart-content" open><summary>Current sale · {{ quote.lines|length }} lines · {{ quote.total_cents|money }}</summary><div class="cart-frame">
+        <div class="panel-heading cart-heading"><div><h2>Current sale</h2><p class="muted">Guest · Simulated checkout only</p></div><span class="cart-count">{{ quote.lines|length }} lines</span></div>
+        <div class="cart-scroll-region">
+            {% if state.receipt %}<p><a href="{{ url_for('interactive_demo.receipt') }}">View your latest fictional receipt</a></p>{% endif %}
+            <div class="cart-items">{% for item in quote.lines %}<article class="cart-item">
+                <div class="cart-item-main"><div><h3>{{ item.name }}</h3><p class="muted">{{ item.price_cents|money }} each</p></div><strong class="cart-line-total">{{ item.line_total_cents|money }}</strong></div>
+                <form class="cart-item-actions" method="post" action="{{ url_for('interactive_demo.cart') }}">{{ csrf() }}<input type="hidden" name="product_id" value="{{ item.id }}">
+                    <label for="demo-qty-{{ item.id }}">Qty</label><input class="demo-quantity" id="demo-qty-{{ item.id }}" name="quantity" type="number" min="0" max="{{ item.available_quantity if item.available_quantity<20 else 20 }}" value="{{ item.quantity }}" required>
+                    <button class="small-button" type="submit" name="action" value="minus" aria-label="Decrease {{ item.name }}">−</button><button class="small-button" type="submit" name="action" value="set" aria-label="Apply quantity for {{ item.name }}">✓</button><button class="small-button" type="submit" name="action" value="plus" aria-label="Increase {{ item.name }}">+</button><button class="remove-link" type="submit" name="action" value="remove" aria-label="Remove {{ item.name }}">×</button>
+                </form>
+            </article>{% else %}<div class="empty-cart"><div class="empty-cart-icon">{{ icon('cart') }}</div><h3>Your demo cart is empty</h3><p>Choose a fictional product to try simulated checkout.</p></div>{% endfor %}</div>
+            <details class="cart-context"><summary>Discount {{ '· Applied' if quote.discount_cents else '· Add' }}</summary><form method="post" action="{{ url_for('interactive_demo.discount') }}">{{ csrf() }}
+                <label for="demo-discount-kind">Before-tax discount</label><select id="demo-discount-kind" name="kind">{% for kind,label in [('none','No discount'),('fixed','Fixed amount ($)'),('percent','Percentage (%)')] %}<option value="{{ kind }}" {% if state.discount.kind==kind %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+                <label for="demo-discount-value">Discount value</label><input id="demo-discount-value" name="value" value="{{ state.discount.value }}" maxlength="30" inputmode="decimal"><p class="field-help">Each unit must retain at least $0.01.</p><button class="secondary-button" type="submit">Apply discount</button>
+            </form></details>
+            {% if quote.lines %}<form method="post" action="{{ url_for('interactive_demo.clear') }}">{{ csrf() }}<button class="cancel-sale-button" type="submit">Clear cart</button></form>{% endif %}
+        </div>
+        <div class="checkout-dock">
+            <div class="cart-totals" role="status" aria-live="polite" aria-label="Server-calculated demo totals"><div><span>Subtotal</span><strong>{{ quote.subtotal_cents|money }}</strong></div><div><span>Discount</span><strong>−{{ quote.discount_cents|money }}</strong></div><div><span>Tax (8.25%)</span><strong>{{ quote.tax_cents|money }}</strong></div><div class="cart-grand-total"><span>Simulated total</span><strong>{{ quote.total_cents|money }}</strong></div></div>
+            {% if quote.lines %}<details class="payment-panel"><summary class="primary-button charge-action">Simulate charge {{ quote.total_cents|money }} →</summary><div class="payment-body">
+                <h3>Simulated payment</h3><p>No real purchase. Never enter card details.</p>
+                <form method="post" action="{{ url_for('interactive_demo.checkout') }}" class="demo-checkout-form" data-confirm="Complete this fictional sale? No real payment will occur.">
+                    {{ csrf() }}<input type="hidden" name="checkout_token" value="{{ state.nonce }}">
+                    <label for="demo-payment-method">Payment method</label><select id="demo-payment-method" name="payment_method"><option value="Cash">Cash (simulated)</option><option value="Card">Card (simulated)</option></select>
+                    <div id="demo-cash-fields"><label for="demo-cash">Fictional cash received ($)</label><input id="demo-cash" name="cash_received" type="number" min="0" max="2000" step="0.01" inputmode="decimal"><button class="secondary-button" type="button" id="demo-preview" data-url="{{ url_for('interactive_demo.cash_preview') }}">Preview cash change</button><p id="demo-change" role="status" aria-live="polite"></p></div>
+                    <button type="submit" class="primary-button checkout-button">Complete simulated sale · {{ quote.total_cents|money }}</button>
+                </form>
+            </div></details>{% endif %}
+        </div>
+    </div></details></aside>
+</div>
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static',filename='js/pos.js') }}" defer></script><script src="{{ url_for('static',filename='js/demo.js') }}" defer></script>{% endblock %}

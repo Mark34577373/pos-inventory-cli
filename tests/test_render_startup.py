@@ -67,6 +67,19 @@ assert client.post('/demo', base_url='https://localhost', data={'csrf_token':tok
 for path in ['/', '/inventory', '/sale', '/transactions', '/reports']:
  assert get(path).status_code == 200, path
 assert client.post('/sale/add', base_url='https://localhost', data={'csrf_token':token, 'product_id':1}).status_code == 403
+from pathlib import Path
+import os
+database_before = Path(os.environ['TCCP_DB_PATH']).read_bytes()
+simulation = app.test_client()
+assert simulation.get('/demo/pos', base_url='https://localhost').status_code == 200
+with simulation.session_transaction(base_url='https://localhost') as state:
+ demo_csrf, demo_token = state['csrf_token'], state['interactive_demo_token']
+assert simulation.post('/demo/cart', base_url='https://localhost', data=dict(csrf_token=demo_csrf,product_id='notebook',quantity='1',action='add')).status_code == 303
+from demo_routes import memory
+nonce = memory.states[demo_token]['nonce']
+assert simulation.post('/demo/checkout', base_url='https://localhost', data=dict(csrf_token=demo_csrf,checkout_token=nonce,payment_method='Card')).status_code == 303
+assert simulation.get('/demo/receipt', base_url='https://localhost').status_code == 200
+assert Path(os.environ['TCCP_DB_PATH']).read_bytes() == database_before
 ''')
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.dump(), before)

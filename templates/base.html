@@ -13,7 +13,7 @@
     <script src="{{ url_for('static', filename='js/ui.js') }}" defer></script>
     <script src="{{ url_for('static', filename='js/workspace.js') }}" defer></script>
 </head>
-<body class="{{ 'workspace-pos' if request.endpoint=='sale' else 'workspace-console' }}" data-ui-context="{{ g.user.id if g.user else 'demo' }}:{{ g.store.id if g.store else 'public' }}">
+<body class="{{ 'workspace-pos' if request.endpoint=='sale' or g.is_interactive_demo else 'workspace-console' }}" data-ui-context="{{ 'interactive' if g.is_interactive_demo else (g.user.id if g.user else 'demo') }}:{{ g.store.id if g.store else 'public' }}">
 <a class="skip-link" href="#main-content">Skip to main content</a>
 <div class="app-shell">
     <aside class="sidebar" aria-label="Workspace">
@@ -65,7 +65,7 @@
         </header>
         <div class="page-content">
             {% with messages = get_flashed_messages(with_categories=true) %}{% if messages %}<div class="flash-stack">{% for category,message in messages %}<div class="flash-message flash-{{ category }}"{% if category=='error' %} role="alert" tabindex="-1"{% else %} role="status"{% endif %}><strong>{{ 'Please review' if category=='error' else 'Success' }}</strong><span>{{ message }}</span>{% if category!='error' %}<button type="button" class="toast-dismiss" aria-label="Dismiss message">×</button>{% endif %}</div>{% endfor %}</div>{% endif %}{% endwith %}
-            <p class="demo-banner"><span aria-hidden="true">◈</span> All payments are simulated{% if g.is_demo %} · Fictional data · Read-only public demo{% elif config.DEMO_READ_ONLY %} · Read-only deployment{% endif %}</p>
+            <p class="demo-banner"><span aria-hidden="true">◈</span> {% if g.is_interactive_demo %}Interactive demo — All payments and transactions are simulated. No real purchases are made.{% else %}All payments are simulated{% if g.is_demo %} · Fictional data · Read-only public demo{% elif config.DEMO_READ_ONLY %} · Read-only deployment{% endif %}{% endif %}</p>
             {% block content %}{% endblock %}
         </div>
         <footer class="app-footer"><span>TCCP · Simulated point of sale</span><span>Inventory · Checkout · Sales</span></footer>

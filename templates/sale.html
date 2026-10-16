@@ -248,7 +248,8 @@
         {% else %}
         <div class="empty-cart">
             <div class="empty-cart-icon">{{ icon('cart') }}</div>
-            <h3>{{ 'Your cart is empty' if ui_can_write else 'Read-only checkout preview' }}</h3>
+            <h3>{{ 'Your cart is empty' if ui_can_write else 'Browse the shared demo catalog' }}</h3>
+            {% if not ui_can_write %}<p><a class="primary-button" href="{{ url_for('interactive_demo.catalog') }}">Try interactive simulated checkout</a></p>{% endif %}
             <p class="muted">{{ 'Add a product from the list to begin a sale.' if ui_can_write else 'Browse fictional products here. Sign in to a writable private store to create a cart and record simulated sales.' }}</p>
         </div>
         </div>{% endif %}
