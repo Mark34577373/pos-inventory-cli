@@ -5,8 +5,10 @@ import re
 from contextlib import closing
 from decimal import Decimal
 
+from flask import g, has_request_context
+
 from database.database import get_store_connection
-from database.tenancy import require_store_write
+from database.tenancy import current_store_id, require_store_write
 from services.auth import normalize_email
 from services.validation import visible_text
 
@@ -40,6 +42,16 @@ def tax_rate():
 
 
 def default_threshold():
+    # One presentation default per authorized request, not a financial/report cache.
+    # The store key also protects trusted tests/internal context switches.
+    if has_request_context():
+        store = current_store_id()
+        cached = getattr(g, "_stock_threshold", None)
+        if cached is not None and cached[0] == store:
+            return cached[1]
+        value = get_settings()["low_stock_default"]
+        g._stock_threshold = (store, value)
+        return value
     return get_settings()["low_stock_default"]
 
 
@@ -126,3 +138,5 @@ def save_settings(section, fields):
             raise ValueError("Settings changed in another window. Reload before saving.")
         if store_name is not None:
             conn.execute("UPDATE stores SET name=? WHERE id=authorized_store_id()", (store_name,))
+    if "low_stock_default" in updates and has_request_context():
+        g.pop("_stock_threshold", None)

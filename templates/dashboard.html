@@ -6,6 +6,7 @@
 
 {% block content %}
 <!-- Welcome -->
+<p class="no-print"><a class="text-link" href="{{ url_for('alerts.overview') }}">Notification center · {{ notifications.unread if notifications else 0 }} unread →</a></p>
 <section class="welcome-row">
     <div>
         <div class="eyebrow content-eyebrow">OVERVIEW</div>

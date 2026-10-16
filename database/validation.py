@@ -1,6 +1,6 @@
 """Read-only checks around the existing ordered, transactional migrations."""
 
-VERSIONS = (14, 15, 16, 17, 20, 21)
+VERSIONS = (14, 15, 16, 17, 20, 21, 22)
 COLUMNS = {
     14: {
         "products": "id name price price_cents quantity is_active store_id",
@@ -83,6 +83,10 @@ COLUMNS[21] = {}
 INDEXES[21] = ("adjustments_initial_history", "items_store_product_cohort", "items_store_category_cohort")
 TRIGGERS[21] = ()
 
+COLUMNS[22] = {"inventory_alerts": "id store_id product_id product_name kind severity quantity threshold created_at updated_at read_at dismissed_at resolved_at"}
+INDEXES[22] = ("alerts_active_product", "alerts_store_date", "alerts_unread", "alerts_store_kind", "alerts_product_history")
+TRIGGERS[22] = ("alerts_product_insert", "alerts_product_update", "alerts_product_legacy", "alerts_default_threshold", "alerts_history_guard", "alerts_no_delete")
+
 # Include every ownership/numeric/audit guard, including desktop compatibility.
 TRIGGERS[14] += tuple(
     f"{table}_{suffix}"
@@ -153,7 +157,7 @@ def validate_integrity(conn, *, allow_missing_products=False):
         allowed = False
         if (
             allow_missing_products
-            and table in ("transaction_items", "stock_adjustments", "inventory_baselines")
+            and table in ("transaction_items", "stock_adjustments", "inventory_baselines", "inventory_alerts")
             and parent == "products"
         ):
             allowed = (

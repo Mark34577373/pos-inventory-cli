@@ -80,6 +80,8 @@ def initialize_database(seed=True, *, allow_missing_products=False):
             migrate_settings(conn)
             from database.advanced_analytics_migration import migrate_advanced_analytics
             migrate_advanced_analytics(conn)
+            from database.alerts_migration import migrate_alerts
+            migrate_alerts(conn)
             validate_schema(conn, require_current=True)
             validate_integrity(conn, allow_missing_products=allow_missing_products)
 

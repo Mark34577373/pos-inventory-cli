@@ -13,6 +13,7 @@ from flask import g
 
 from database import database as db
 from manage import check_database, seed_demo
+from services.alerts import list_alerts
 from services.auth import register_user
 from services.inventory import create_product
 from services.inventory_management import save_category
@@ -104,6 +105,8 @@ class UITests(unittest.TestCase):
             self.tx = state["last_receipt_id"]
         with self.context():
             self.line = get_sale(self.tx)["items"][0]["id"]
+            create_product("Alpha notification example", "1.00", 0)
+            self.alert = list_alerts({})["alerts"][0]["id"]
 
     def tearDown(self):
         db.DB_FILE = self.original_db
@@ -143,6 +146,8 @@ class UITests(unittest.TestCase):
             "/reports",
             "/account",
             "/settings",
+            "/notifications",
+            f"/notifications/{self.alert}",
             "/missing",
         ]
 

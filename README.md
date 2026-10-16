@@ -207,3 +207,45 @@ never migrates your working database automatically.
 See the [Days 20–21 implementation report](docs/DAYS20-21.md) for exact metric,
 filter, comparison and forecasting definitions, migration/recovery instructions,
 file manifest, verification results and manual QA limitations.
+
+## Days 22–23 inventory notifications and final QA
+
+**Notifications** adds a durable, store-private inbox and navigation bell. Low
+stock is warning, zero stock is critical, and condition clearance is informational.
+Read/dismiss/page-read actions require CSRF and retain history. Default/product
+threshold inheritance is unchanged. Stock mutations and alert transitions commit
+together, including checkout, refund restock and trusted desktop writes. There is
+no polling, email/SMS integration or automatic purchasing.
+
+Open a notification for its recorded snapshot, current product links and a
+read-only, explainable restock estimate. Estimates require 30 complete days of
+known opening history and positive physical depletion; no history/demand yields
+N/A. See [Day 22 workflows and formulas](docs/DAY22.md).
+
+Migration **22** supersedes earlier production schema requirements. Back up, stop
+writers, test `python manage.py init` and `python manage.py check` on a verified
+copy before upgrading the selected database. No working database is automatically
+migrated by development or HTTP requests.
+
+Day 23 adds a development-only coverage tool, a coverage-enabled CI workflow,
+actual-script frontend checks and a disposable benchmark:
+
+```bash
+.venv/bin/python -m coverage run -m pytest -q -p no:cacheprovider
+.venv/bin/python -m coverage report
+.venv/bin/python -m ruff check .
+node tests/frontend_checks.mjs
+PYTHONPATH=. .venv/bin/python scripts/qa_benchmark.py
+```
+
+Reporting now aggregates bounded sale rows with Python integers, avoiding SQLite
+SUM overflow for large legacy totals. Desktop average display follows exact
+half-up cent rounding; its fractional-cent statistic is an exact rational. Large
+windows fail explicitly instead of silently truncating. Dashboard stock-default
+lookups are reused within a request, keyed to its store and invalidated on save;
+authoritative checkout settings still come from the transaction.
+
+See [FINAL_QA_REPORT.md](docs/FINAL_QA_REPORT.md) for actual test/coverage counts,
+three-account isolation, financial/database checks, measured performance, severity
+findings, manual UI limitations and the Day 24 readiness decision. Automated tests
+do not prove zero vulnerabilities or replace hosted HTTPS, recovery and browser QA.

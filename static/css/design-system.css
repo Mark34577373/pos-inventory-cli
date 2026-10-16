@@ -269,3 +269,18 @@ textarea { resize: vertical; }
 .chart-net.negative { background:#b91c1c; }
 .diverging-bar:focus-visible { outline:3px solid #111827; outline-offset:2px; }
 @media print { .advanced-chart { max-height:none; overflow:visible; } .settings-nav { display:none; } .advanced-chart-period { break-inside:avoid; } }
+/* Inventory notifications: native details provides keyboard-operable navigation. */
+.notification-bell { position:relative; }
+.notification-bell summary { cursor:pointer; padding:.6rem; border-radius:.5rem; font-size:.875rem; }
+.notification-bell summary:focus-visible { outline:3px solid #2563eb; outline-offset:2px; }
+.notification-count { display:inline-block; padding:.1rem .5rem; background:#dbeafe; color:#1e3a8a; border-radius:1rem; font-weight:700; }
+.notification-popover { position:absolute; right:0; top:100%; width:min(22rem,80vw); max-height:24rem; overflow:auto; padding:1rem; background:white; border:1px solid #cbd5e1; border-radius:.75rem; box-shadow:0 10px 25px #0f172a26; z-index:30; }
+.notification-popover h2 { font-size:1rem; }
+.notification-popover ul { padding-left:1rem; }
+.notification-popover li { padding:.5rem 0; overflow-wrap:anywhere; }
+.notification-card { border-left:4px solid #2563eb; }
+.notification-card.alert-warning { border-left-color:#b45309; }
+.notification-card.alert-critical { border-left-color:#b91c1c; }
+.notification-list h2 { font-size:1.15rem; }
+@media(max-width:767px) { .notification-popover { position:fixed; top:7rem; left:1rem; right:1rem; width:auto; } }
+@media print { .notification-bell { display:none; } }

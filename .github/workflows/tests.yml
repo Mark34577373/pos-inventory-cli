@@ -1,5 +1,7 @@
 name: Reliability tests
 on: [push, pull_request]
+permissions:
+  contents: read
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -11,4 +13,9 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y python3-tk
       - run: python -m pip install -r requirements-dev.txt
       - run: python -m ruff check .
-      - run: python -m pytest -q
+      - run: python -m coverage run -m pytest -q
+      - run: python -m coverage report
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: node tests/frontend_checks.mjs

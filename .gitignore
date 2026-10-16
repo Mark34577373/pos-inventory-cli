@@ -20,3 +20,8 @@ backups/
 *.bak
 *.pem
 *.key
+
+# Local QA coverage artifacts
+.coverage*
+htmlcov/
+coverage.json

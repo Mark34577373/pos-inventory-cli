@@ -19,6 +19,7 @@ from flask import (
 )
 from werkzeug.exceptions import HTTPException, SecurityError
 
+from alert_routes import bp as alerts_blueprint
 from analytics_routes import bp as analytics_blueprint
 from auth_routes import bp as auth_blueprint
 from config import BUSINESS_TIMEZONE, business_now
@@ -48,6 +49,7 @@ from services.inventory_management import (
 )
 from services.money import calculate_tax_cents, format_cents, from_cents, parse_cash
 from services.refunds import get_sale
+from services.sales_totals import read_sales, summarize_sales
 from services.settings import get_settings, tax_rate
 from services.transaction_history import query_transactions
 from services.transaction_service import complete_transaction
@@ -55,6 +57,7 @@ from settings_routes import bp as settings_blueprint
 
 app = Flask(__name__)
 
+app.register_blueprint(alerts_blueprint)
 app.register_blueprint(settings_blueprint)
 app.register_blueprint(auth_blueprint)
 app.register_blueprint(analytics_blueprint)
@@ -88,7 +91,7 @@ if os.environ.get("TCCP_ENV") == "production":
     try:
         with closing(sqlite3.connect(Path(os.environ["TCCP_DB_PATH"]).resolve().as_uri() + "?mode=ro", uri=True)) as startup_db:
             startup_db.execute('PRAGMA foreign_keys=ON')
-            if startup_db.execute("SELECT 1 FROM schema_migrations WHERE version=21").fetchone() is None:
+            if startup_db.execute("SELECT 1 FROM schema_migrations WHERE version=22").fetchone() is None:
                 raise RuntimeError("Run the explicit database migration before production startup.")
             from database.validation import validate_integrity, validate_schema
             validate_schema(startup_db, require_current=True)
@@ -226,6 +229,18 @@ def store_preferences():
         # Financial services still fail closed; this supplies no tax fallback.
         preferences = None
     return {"store_preferences": preferences, "business_timezone": BUSINESS_TIMEZONE}
+
+
+@app.context_processor
+def notification_context():
+    if not getattr(g, 'store', None):
+        return {}
+    from services.alerts import notification_summary
+    try:
+        return {'notifications': notification_summary()}
+    except sqlite3.Error:
+        # Error templates must still render when the database is unavailable.
+        return {'notifications': None}
 
 
 @app.after_request
@@ -402,17 +417,12 @@ def dashboard():
     conn = get_db_connection()
     try:
         conn.execute("BEGIN")
-        today_summary = conn.execute(
-            """
-            SELECT
-                COALESCE(SUM(total_cents), 0) AS today_sales_cents,
-                COUNT(*) AS today_transaction_count
-            FROM transactions
-            WHERE store_id=authorized_store_id() AND date(timestamp) = ?
-            """,
-            (today.isoformat(),),
-        ).fetchone()
-
+        try:
+            week_sales = read_sales(conn, start_date.isoformat()+' 00:00:00', (today+timedelta(days=1)).isoformat()+' 00:00:00')
+        except ReportLimitError as error:
+            abort(413,description=str(error))
+        totals = summarize_sales([row for row in week_sales if row['timestamp'][:10]==today.isoformat()])
+        today_summary = {'today_sales_cents':totals['total_revenue_cents'], 'today_transaction_count':totals['transaction_count']}
         recent_rows = conn.execute(
             """
             SELECT id, timestamp, total_cents, payment_method
@@ -423,20 +433,13 @@ def dashboard():
             """
         ).fetchall()
 
-        daily_rows = conn.execute(
-            """
-            SELECT
-                date(timestamp) AS sale_date,
-                COUNT(*) AS transaction_count,
-                COALESCE(SUM(total_cents), 0) AS sales_cents
-            FROM transactions
-            WHERE store_id=authorized_store_id() AND date(timestamp) >= ?
-              AND date(timestamp) <= ?
-            GROUP BY date(timestamp)
-            ORDER BY sale_date ASC
-            """,
-            (start_date.isoformat(), today.isoformat()),
-        ).fetchall()
+        daily = {}
+        for row in week_sales:
+            key = row['timestamp'][:10]
+            bucket = daily.setdefault(key, {'sale_date':key,'transaction_count':0,'sales_cents':0})
+            bucket['sales_cents'] += row['total_cents']
+            bucket['transaction_count'] += 1
+        daily_rows = list(daily.values())
         refund_rows = conn.execute("SELECT total_cents FROM refunds WHERE store_id=authorized_store_id() AND business_date=? ORDER BY id LIMIT 10001", (today.isoformat(),)).fetchall()
         if len(refund_rows) > 10000:
             abort(413, description='Narrow reporting to at most 10,000 refunds.')

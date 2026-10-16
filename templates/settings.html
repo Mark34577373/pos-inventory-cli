@@ -33,6 +33,7 @@
 {{ field('thank_you','Thank-you message',settings.thank_you,200) }}{{ finish() }}
 <section class="panel settings-section"><h2>Saved receipt preview</h2><p class="muted">Preview of saved preferences. No sale or payment is created.</p><div class="receipt-paper"><h3>{{ settings.receipt_name }}</h3><p class="receipt-text">{{ settings.receipt_contact }}</p><p class="receipt-text">{{ settings.receipt_header }}</p><p>Sample item · $10.00</p><p>Tax: {{ preview_tax|money }} · Preview only</p><p class="receipt-text">{{ settings.receipt_footer }}</p><p>{{ settings.thank_you }}</p><strong>SIMULATED RECEIPT PREVIEW</strong></div></section>
 {{ start('inventory','Inventory preferences','Products with a blank threshold use this default. Explicit product thresholds, quantities and stock history are unchanged. Zero stock is always out of stock.') }}
+<p><a href="{{ url_for('alerts.overview') }}">Review durable stock alerts and notification history</a></p>
 {{ field('low_stock_default','Default low-stock threshold (0–1000000)',settings.low_stock_default,7,required=true) }}{{ finish() }}
 {{ start('analytics','Dashboard & analytics','Preferences affect presentation, not financial records.') }}
 <div class="form-field"><label for="setting-period">Default reporting period</label><select id="setting-period" name="report_period">{% for period in periods %}<option value="{{ period }}"{% if settings.report_period==period %} selected{% endif %}>{{ period|replace('_',' ')|title }}</option>{% endfor %}</select></div>

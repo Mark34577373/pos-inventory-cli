@@ -2,6 +2,7 @@
 {% block title %}Inventory | TCCP{% endblock %}
 {% block page_heading %}Inventory{% endblock %}
 {% block content %}
+<p><a href="{{ url_for('alerts.overview',state='active') }}">Open active inventory alerts →</a></p>
 <section class="welcome-row"><div><p class="eyebrow">PRODUCT MANAGEMENT</p><h2 class="welcome-title">Inventory</h2><p class="muted">Organize products and keep stock accurate.</p></div><div class="inventory-links"><a class="secondary-button" href="{{ url_for('inventory_tools.categories') }}">Categories</a><a class="secondary-button" href="{{ url_for('inventory_tools.history') }}">Stock history</a>{% if ui_can_write %}<a class="primary-button" href="{{ url_for('add_product') }}">＋ Add product</a>{% endif %}</div></section>
 <section class="stats-grid compact-stats" aria-label="Matching inventory summary">
 <article class="stat-card"><span class="stat-label">Products found</span><strong class="stat-value">{{ total_products }}</strong><span class="stat-note">Across all matching pages</span></article>

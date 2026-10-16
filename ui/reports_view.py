@@ -3,7 +3,9 @@ from datetime import timedelta
 
 from config import business_now
 from database.database import get_store_connection as get_db_connection
+from services.analytics import ReportLimitError
 from services.money import format_cents
+from services.sales_totals import read_sales, summarize_sales
 
 
 def get_today_sales_summary(now=None):
@@ -19,36 +21,12 @@ def get_today_sales_summary(now=None):
 
     conn = get_db_connection()
     try:
-        summary = conn.execute(
-            """
-            SELECT
-                COUNT(*) AS transaction_count,
-                COALESCE(SUM(total_cents), 0) AS total_revenue_cents,
-                COALESCE(AVG(total_cents), 0) AS average_sale_cents,
-                COALESCE(SUM(
-                    CASE
-                        WHEN UPPER(payment_method) = 'CASH'
-                        THEN total_cents
-                        ELSE 0
-                    END
-                ), 0) AS cash_revenue_cents,
-                COALESCE(SUM(
-                    CASE
-                        WHEN UPPER(payment_method) = 'CARD'
-                        THEN total_cents
-                        ELSE 0
-                    END
-                ), 0) AS card_revenue_cents
-            FROM transactions
-            WHERE store_id=authorized_store_id() AND timestamp >= ? AND timestamp < ?
-            """,
-            (
-                start_of_day.strftime("%Y-%m-%d %H:%M:%S"),
-                start_of_next_day.strftime("%Y-%m-%d %H:%M:%S"),
-            ),
-        ).fetchone()
-
-        return dict(summary)
+        rows = read_sales(
+            conn,
+            start_of_day.strftime("%Y-%m-%d %H:%M:%S"),
+            start_of_next_day.strftime("%Y-%m-%d %H:%M:%S"),
+        )
+        return summarize_sales(rows)
     finally:
         conn.close()
 
@@ -105,7 +83,11 @@ def create_reports_view(parent_frame):
     )
     title.pack(anchor=tk.W, pady=(0, 20))
 
-    summary = get_today_sales_summary()
+    try:
+        summary = get_today_sales_summary()
+    except ReportLimitError as error:
+        tk.Label(parent_frame, text=str(error), wraplength=500, fg="#b91c1c").pack(anchor=tk.W)
+        return
     best_seller = get_today_best_seller()
 
     best_seller_text = (
@@ -127,7 +109,7 @@ def create_reports_view(parent_frame):
         ),
         (
             "Average Sale",
-            format_cents(round(summary["average_sale_cents"])),
+            format_cents(summary["average_sale_rounded_cents"]),
             "#34495e",
         ),
         (
