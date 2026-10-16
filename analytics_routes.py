@@ -4,6 +4,7 @@ from flask import Blueprint, Response, abort, render_template, request, url_for
 
 from services.analytics import ReportLimitError, build_analytics, resolve_filters
 from services.sales_exports import KINDS, create_csv
+from services.settings import get_settings
 
 bp = Blueprint("analytics", __name__, url_prefix="/analytics")
 
@@ -11,7 +12,10 @@ bp = Blueprint("analytics", __name__, url_prefix="/analytics")
 @bp.get("")
 def overview():
     try:
-        filters = resolve_filters(request.args)
+        args = request.args.to_dict()
+        if not any(k in args for k in ('preset', 'start_date', 'end_date')):
+            args['preset'] = get_settings()['report_period']
+        filters = resolve_filters(args)
         data = build_analytics(filters)
     except ReportLimitError as error:
         return render_template("error.html", message=str(error)), 413
@@ -28,7 +32,10 @@ def download(kind):
     if kind not in KINDS:
         abort(404)
     try:
-        filters = resolve_filters(request.args)
+        args = request.args.to_dict()
+        if not any(k in args for k in ('preset', 'start_date', 'end_date')):
+            args['preset'] = get_settings()['report_period']
+        filters = resolve_filters(args)
         data = build_analytics(filters)
     except ReportLimitError as error:
         return render_template("error.html", message=str(error)), 413

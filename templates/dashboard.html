@@ -68,12 +68,12 @@
 </section>
 
 <section class="stats-grid stats-grid-2" aria-label="Refund metrics"><article class="stat-card"><span class="stat-label">Today's refunds</span><strong class="stat-value">{{ today_refunded_cents|money }}</strong><small>Completed simulated refunds on refund date</small></article><article class="stat-card"><span class="stat-label">Today's net sales</span><strong class="stat-value">{{ today_net_sales_cents|money }}</strong><small>Gross minus refunds, including tax; not profit</small></article></section>
-<section class="stock-alerts" aria-label="Inventory alerts">
+{% if store_preferences.show_stock %}<section class="stock-alerts" aria-label="Inventory alerts">
 {% for title,status,alert_products in [('Low stock','low',low_stock_products),('Out of stock','out',out_of_stock_products)] %}
 <article class="content-panel"><div class="section-heading"><h2>{{ title }}</h2><a class="text-link" href="{{ url_for('inventory',status=status) }}">View all →</a></div>
 {% if alert_products %}<ul>{% for product in alert_products %}<li><strong>{{ product.name }}</strong> · {{ product.quantity }} units {% if ui_can_write %}<a class="text-link" href="{{ url_for('inventory_tools.adjust',product_id=product.id) }}">Restock</a>{% endif %}</li>{% endfor %}</ul><p class="muted">Up to 10 active products shown.</p>{% else %}<p class="muted">No active products need attention in this group.</p>{% endif %}</article>
 {% endfor %}
-</section>
+</section>{% endif %}
 
 <!-- Sales trend -->
 <section class="content-panel day12-panel">
@@ -136,7 +136,7 @@
 </section>
 
 <!-- Recent transactions -->
-<section class="content-panel day12-panel">
+{% if store_preferences.show_recent %}<section class="content-panel day12-panel">
     <div class="section-heading">
         <div>
             <h2>Recent transactions</h2>
@@ -211,10 +211,10 @@
         </a>{% endif %}
     </div>
     {% endif %}
-</section>
+</section>{% endif %}
 
 <!-- Inventory overview -->
-<section class="stats-grid" aria-label="Inventory value">
+<section class="stats-grid" aria-label="Inventory at retail selling prices">
     <article class="stat-card">
         <div class="stat-card-top">
             <span class="stat-label">Active products</span>
@@ -226,7 +226,7 @@
 
     <article class="stat-card">
         <div class="stat-card-top">
-            <span class="stat-label">Inventory value</span>
+            <span class="stat-label">Inventory at retail selling prices</span>
             <span class="stat-icon icon-green" aria-hidden="true">$</span>
         </div>
         <div class="stat-value stat-value-money">

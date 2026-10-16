@@ -8,6 +8,7 @@ from datetime import date
 
 from database.database import get_store_connection
 from database.tenancy import require_store_write
+from services.settings import default_threshold
 from services.validation import visible_text
 
 DEFAULT_THRESHOLD = 5
@@ -68,7 +69,7 @@ def whole_number(value, minimum=0, maximum=1_000_000):
 def stock_status(product):
     quantity = product["quantity"]
     threshold = product.get("low_stock_threshold")
-    threshold = DEFAULT_THRESHOLD if threshold is None else threshold
+    threshold = default_threshold() if threshold is None else threshold
     return "out" if quantity <= 0 else ("low" if quantity <= threshold else "in")
 
 
@@ -196,8 +197,8 @@ def query_inventory(filters):
         clauses.append("p.category_id=?")
         params.append(int(category))
     statuses = {
-        "in": "p.quantity>COALESCE(p.low_stock_threshold,5)",
-        "low": "p.quantity>0 AND p.quantity<=COALESCE(p.low_stock_threshold,5)",
+        "in": "p.quantity>COALESCE(p.low_stock_threshold,(SELECT low_stock_default FROM store_settings WHERE store_id=authorized_store_id()))",
+        "low": "p.quantity>0 AND p.quantity<=COALESCE(p.low_stock_threshold,(SELECT low_stock_default FROM store_settings WHERE store_id=authorized_store_id()))",
         "out": "p.quantity=0",
     }
     if filters["status"]:
@@ -207,7 +208,7 @@ def query_inventory(filters):
         totals = dict(
             conn.execute(
                 f"""SELECT COUNT(*) AS total_products,
-            COALESCE(SUM(CASE WHEN p.quantity>0 AND p.quantity<=COALESCE(p.low_stock_threshold,5) THEN 1 ELSE 0 END),0) AS low_stock_count,
+            COALESCE(SUM(CASE WHEN p.quantity>0 AND p.quantity<=COALESCE(p.low_stock_threshold,(SELECT low_stock_default FROM store_settings WHERE store_id=authorized_store_id())) THEN 1 ELSE 0 END),0) AS low_stock_count,
             COALESCE(SUM(CASE WHEN p.quantity=0 THEN 1 ELSE 0 END),0) AS out_of_stock_count,
             COALESCE(SUM(p.price_cents*p.quantity),0) AS inventory_value
             FROM products p WHERE {where}""",

@@ -248,6 +248,34 @@ export async function runChecks() {
             let printed=false; env.window.print=()=>{printed=true;};
             await env.document.fire('click',{target:button}); assert.equal(printed,true);
         });
+        await check('Settings warn only for unsaved forms and retain warnings after canceled confirmation', async () => {
+            const env=await setup(); const first=new Element(); const second=new Element();
+            env.document.querySelectorAll=selector=>selector==='[data-settings-form]' ? [first,second] : [];
+            const source=await readFile(new URL('../static/js/settings.js',import.meta.url),'utf8');
+            const path=join(directory,'settings-'+(++sequence)+'.mjs');
+            await writeFile(path,source); await import(pathToFileURL(path).href);
+            const navigation=()=>({prevented:false,preventDefault(){this.prevented=true;}});
+            let event=navigation(); await env.window.fire('beforeunload',event); assert.equal(event.prevented,false);
+            await first.fire('input'); await first.fire('submit',{defaultPrevented:true});
+            event=navigation(); await env.window.fire('beforeunload',event); assert.equal(event.prevented,true);
+            await first.fire('submit',{defaultPrevented:false});
+            event=navigation(); await env.window.fire('beforeunload',event); assert.equal(event.prevented,false);
+            await first.fire('change'); await second.fire('input'); await first.fire('submit',{defaultPrevented:false});
+            event=navigation(); await env.window.fire('beforeunload',event); assert.equal(event.prevented,true);
+        });
+        await check('Analytics bars expose exact text and selection state; date edits choose custom', async () => {
+            const env=await setup(); const bars=[new Element(),new Element()];
+            bars[0].dataset.periodDetail='Gross $1.16'; bars[1].dataset.periodDetail='<script>fictional label</script>: $0.11';
+            for(const id of ['analytics-selection','analytics-preset','analytics-start','analytics-end']) env.ids[id]=new Element(id);
+            env.document.querySelectorAll=selector=>selector==='[data-period-detail]' ? bars : [];
+            const source=await readFile(new URL('../static/js/analytics.js',import.meta.url),'utf8');
+            const path=join(directory,'analytics-'+(++sequence)+'.mjs');
+            await writeFile(path,source); await import(pathToFileURL(path).href);
+            await bars[1].fire('click');
+            assert.equal(env.ids['analytics-selection'].textContent,bars[1].dataset.periodDetail);
+            assert.equal(bars[0].attrs['aria-pressed'],'false'); assert.equal(bars[1].attrs['aria-pressed'],'true');
+            await env.ids['analytics-start'].fire('change'); assert.equal(env.ids['analytics-preset'].value,'custom');
+        });
         return {passed:names.length,failed:0,checks:names};
     } finally {
         await rm(directory,{recursive:true,force:true});

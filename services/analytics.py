@@ -14,8 +14,19 @@ from database.database import get_store_connection
 MAX_DAYS = 366
 MAX_TRANSACTIONS = 10_000
 MAX_ITEMS = 50_000
-PRESETS = ("today", "yesterday", "last7", "last30", "this_month", "previous_month", "custom")
-GROUPS = ("daily", "weekly", "monthly")
+PRESETS = (
+    "today",
+    "yesterday",
+    "last7",
+    "last30",
+    "this_month",
+    "previous_month",
+    "this_week",
+    "previous_week",
+    "calendar_month",
+    "custom",
+)
+GROUPS = ("hourly", "daily", "weekly", "monthly")
 RANKINGS = ("quantity", "revenue", "name")
 
 
@@ -31,6 +42,10 @@ class ReportFilters:
     group: str = "daily"
     ranking: str = "quantity"
     top: int = 10
+    product: str = ""
+    category: str = ""
+    payment: str = ""
+    compare: str = "equal"
 
     @property
     def days(self):
@@ -46,12 +61,14 @@ class ReportFilters:
 
     @property
     def previous(self):
-        return ReportFilters(
-            self.start - timedelta(days=self.days),
-            self.start - timedelta(days=1),
-            group=self.group,
-            ranking=self.ranking,
-            top=self.top,
+        if self.compare == "calendar" or self.preset == "calendar_month":
+            end = self.start - timedelta(days=1)
+            return replace(self, start=end.replace(day=1), end=end, preset="custom")
+        return replace(
+            self,
+            start=self.start - timedelta(days=self.days),
+            end=self.start - timedelta(days=1),
+            preset="custom",
         )
 
     def query_args(self):
@@ -62,6 +79,10 @@ class ReportFilters:
             "group": self.group,
             "ranking": self.ranking,
             "top": self.top,
+            "product": self.product,
+            "category": self.category,
+            "payment": self.payment,
+            "compare": "calendar" if self.preset == "calendar_month" else self.compare,
         }
 
     def utc_boundaries(self):
@@ -92,6 +113,15 @@ def resolve_filters(args, today=None):
     group = args.get("group", "daily")
     ranking = args.get("ranking", "quantity")
     top = str(args.get("top", "10"))
+    product, category, payment = (args.get(key, "") for key in ("product", "category", "payment"))
+    from services.inventory_management import positive_id
+
+    if product:
+        product = str(positive_id(product))
+    if category and category not in ("unknown", "uncategorized"):
+        category = str(positive_id(category))
+    if payment not in ("", "Cash", "Card", "legacy"):
+        raise ValueError("Choose a valid payment filter.")
     if (
         preset not in PRESETS
         or group not in GROUPS
@@ -108,6 +138,19 @@ def resolve_filters(args, today=None):
     elif preset in ("last7", "last30"):
         end = today
         start = today - timedelta(days=6 if preset == "last7" else 29)
+    elif preset in ("this_week", "previous_week"):
+        start = today - timedelta(days=today.weekday())
+        end = start + timedelta(days=6)
+        if preset == "previous_week":
+            start, end = start - timedelta(days=7), end - timedelta(days=7)
+    elif preset == "calendar_month":
+        start = today.replace(day=1)
+        next_month = (
+            start.replace(year=start.year + 1, month=1)
+            if start.month == 12
+            else start.replace(month=start.month + 1)
+        )
+        end = next_month - timedelta(days=1)
     elif preset == "this_month":
         start, end = today.replace(day=1), today
     else:
@@ -120,16 +163,85 @@ def resolve_filters(args, today=None):
     # Keep both comparison and exclusive-end calculations representable.
     if start < date(3, 1, 1) or end > date(9998, 12, 31):
         raise ValueError("Choose dates between 0003-01-01 and 9998-12-31.")
-    return ReportFilters(start, end, preset, group, ranking, int(top))
+    compare = (
+        args.get("compare", "equal")
+        if preset == "custom"
+        else ("calendar" if preset == "calendar_month" else "equal")
+    )
+    if compare not in ("equal", "calendar"):
+        raise ValueError("Choose a valid comparison window.")
+    if compare == "calendar" and (
+        start.day != 1
+        or start.year != end.year
+        or start.month != end.month
+        or (end + timedelta(days=1)).day != 1
+    ):
+        raise ValueError("Calendar-month comparisons require one complete calendar month.")
+    return ReportFilters(
+        start, end, preset, group, ranking, int(top), product, category, payment, compare
+    )
+
+
+def cohort_sql(filters, alias="transactions"):
+    """Whole-basket cohort: all metrics and refund movements use the same predicate.
+
+    SQL identifiers are internal constants; client values are always parameters.
+    Historical category NULL means unrecorded, not today's category.
+    """
+    clauses, params = [], []
+    if filters.payment:
+        if filters.payment == "legacy":
+            clauses.append(f"{alias}.payment_method NOT IN ('Cash','Card')")
+        else:
+            clauses.append(f"{alias}.payment_method=?")
+            params.append(filters.payment)
+    lines = []
+    if filters.product:
+        lines.append("ci.product_id=?")
+        params.append(int(filters.product))
+    if filters.category == "unknown":
+        lines.append("ci.category_name_snapshot IS NULL")
+    elif filters.category == "uncategorized":
+        lines.append("ci.category_name_snapshot IS NOT NULL AND ci.category_id_snapshot IS NULL")
+    elif filters.category:
+        lines.append("ci.category_id_snapshot=?")
+        params.append(int(filters.category))
+    if lines:
+        clauses.append(
+            f"EXISTS (SELECT 1 FROM transaction_items ci WHERE ci.transaction_id={alias}.id AND ci.store_id={alias}.store_id AND "
+            + " AND ".join(lines)
+            + ")"
+        )
+    return (" AND " + " AND ".join(clauses) if clauses else ""), params
+
+
+def _refunds(conn, filters):
+    cohort, params = cohort_sql(filters, "t")
+    rows = [
+        dict(row)
+        for row in conn.execute(
+            """SELECT r.id,r.transaction_id,r.recorded_at,r.business_date,r.total_cents,r.tax_cents,r.restock FROM refunds r JOIN transactions t ON t.id=r.transaction_id AND t.store_id=r.store_id
+        WHERE r.store_id=authorized_store_id() AND r.business_date>=? AND r.business_date<=?"""
+            + cohort
+            + " ORDER BY r.business_date,r.id LIMIT ?",
+            (filters.start.isoformat(), filters.end.isoformat(), *params, MAX_TRANSACTIONS + 1),
+        )
+    ]
+    if len(rows) > MAX_TRANSACTIONS:
+        raise ReportLimitError("Narrow the period to at most 10,000 refunds.")
+    return rows
 
 
 def _transactions(conn, filters):
+    cohort, params = cohort_sql(filters)
     rows = conn.execute(
         """SELECT id,timestamp,total_cents,payment_method,tax_rate_percent,
         COALESCE((SELECT SUM(r.total_cents) FROM refunds r WHERE r.store_id=transactions.store_id AND r.transaction_id=transactions.id),0) AS refunded_cents
         FROM transactions WHERE store_id=authorized_store_id() AND timestamp>=? AND timestamp<?
-        ORDER BY timestamp,id LIMIT ?""",
-        (filters.lower, filters.upper, MAX_TRANSACTIONS + 1),
+        """
+        + cohort
+        + " ORDER BY timestamp,id LIMIT ?",
+        (filters.lower, filters.upper, *params, MAX_TRANSACTIONS + 1),
     ).fetchall()
     if len(rows) > MAX_TRANSACTIONS:
         raise ReportLimitError(f"Narrow the period to at most {MAX_TRANSACTIONS:,} transactions.")
@@ -167,6 +279,8 @@ def _bucket(day, group):
 
 def _series(filters, transactions):
     buckets = {}
+    if filters.group == "hourly":
+        return _hourly_series(filters, transactions)
     for offset in range(filters.days):
         day = filters.start + timedelta(days=offset)
         key = _bucket(day, filters.group)
@@ -188,7 +302,33 @@ def _series(filters, transactions):
     maximum = max((row["revenue_cents"] for row in rows), default=0)
     for row in rows:
         row["average_order_cents"] = _average(row["revenue_cents"], row["transaction_count"])
-        row["bar_percent"] = f"{Decimal(row['revenue_cents']) * 100 / maximum:.4f}" if maximum else "0"
+        row["bar_percent"] = (
+            f"{Decimal(row['revenue_cents']) * 100 / maximum:.4f}" if maximum else "0"
+        )
+    return rows
+
+
+def _hourly_series(filters, transactions):
+    # Hour-of-day profile across selected dates; repeated DST hours are combined.
+    rows = [
+        dict(
+            period_start=f"{hour:02}:00",
+            period_end=f"{hour:02}:59",
+            revenue_cents=0,
+            transaction_count=0,
+        )
+        for hour in range(24)
+    ]
+    for tx in transactions:
+        row = rows[datetime.fromisoformat(tx["timestamp"]).hour]
+        row["revenue_cents"] += tx["total_cents"]
+        row["transaction_count"] += 1
+    maximum = max((row["revenue_cents"] for row in rows), default=0)
+    for row in rows:
+        row["average_order_cents"] = _average(row["revenue_cents"], row["transaction_count"])
+        row["bar_percent"] = (
+            f"{Decimal(row['revenue_cents']) * 100 / maximum:.4f}" if maximum else "0"
+        )
     return rows
 
 
@@ -200,27 +340,42 @@ def build_analytics(filters):
     filters = replace(resolve_filters(filters.query_args()), preset=filters.preset)
     with closing(get_store_connection()) as conn:
         conn.execute("BEGIN")  # One consistent snapshot for all metrics/exports.
+        for key, table, column in (("product", "products", "id"), ("category", "categories", "id")):
+            value = getattr(filters, key)
+            if value and value not in ("unknown", "uncategorized"):
+                owned = conn.execute(
+                    f"SELECT 1 FROM {table} WHERE {column}=? AND store_id=authorized_store_id()",
+                    (int(value),),
+                ).fetchone()
+                if owned is None and key == "category":
+                    owned = conn.execute(
+                        "SELECT 1 FROM transaction_items WHERE category_id_snapshot=? AND store_id=authorized_store_id() LIMIT 1",
+                        (int(value),),
+                    ).fetchone()
+                if owned is None:
+                    raise ValueError("The selected filter is unavailable in this store.")
         transactions = _transactions(conn, filters)
         previous = _transactions(conn, filters.previous)
+        cohort, cohort_params = cohort_sql(filters, "t")
         items = conn.execute(
             """SELECT ti.id,ti.transaction_id,ti.product_id,ti.product_name,
-            ti.quantity,ti.price_cents,t.timestamp
+            ti.quantity,ti.price_cents,ti.category_id_snapshot,ti.category_name_snapshot,t.timestamp
             FROM transactions t JOIN transaction_items ti
               ON ti.transaction_id=t.id AND ti.store_id=t.store_id
             WHERE t.store_id=authorized_store_id() AND ti.store_id=authorized_store_id()
               AND t.timestamp>=? AND t.timestamp<?
-            ORDER BY t.timestamp,t.id,ti.id LIMIT ?""",
-            (filters.lower, filters.upper, MAX_ITEMS + 1),
+            """
+            + cohort
+            + " ORDER BY t.timestamp,t.id,ti.id LIMIT ?",
+            (filters.lower, filters.upper, *cohort_params, MAX_ITEMS + 1),
         ).fetchall()
         if len(items) > MAX_ITEMS:
             raise ReportLimitError(f"Narrow the period to at most {MAX_ITEMS:,} line items.")
-        refunds = [dict(row) for row in conn.execute(
-            """SELECT id,transaction_id,recorded_at,business_date,total_cents,tax_cents,restock
-            FROM refunds WHERE store_id=authorized_store_id() AND business_date>=? AND business_date<=?
-            ORDER BY business_date,id LIMIT ?""",
-            (filters.start.isoformat(), filters.end.isoformat(), MAX_TRANSACTIONS + 1))]
-        if len(refunds) > MAX_TRANSACTIONS:
-            raise ReportLimitError('Narrow the period to at most 10,000 refunds.')
+        refunds = _refunds(conn, filters)
+        previous_refunds = _refunds(conn, filters.previous)
+        from services.analytics_details import build_details
+
+        details = build_details(conn, filters, transactions, items, refunds)
         store = dict(
             conn.execute("SELECT id,name FROM stores WHERE id=authorized_store_id()").fetchone()
         )
@@ -301,16 +456,78 @@ def build_analytics(filters):
         "units_sold": sum(row["units_sold"] for row in products.values()),
         "unverified_tax_transactions": unverified,
     }
-    refunded = sum(row['total_cents'] for row in refunds)
-    summary.update(refunded_cents=refunded, net_sales_cents=total-refunded, refund_count=len(refunds))
+    refunded = sum(row["total_cents"] for row in refunds)
+    summary.update(
+        refunded_cents=refunded, net_sales_cents=total - refunded, refund_count=len(refunds)
+    )
     series = _series(filters, transactions)
     refund_buckets = defaultdict(int)
     for refund in refunds:
-        refund_buckets[_bucket(date.fromisoformat(refund['business_date']), filters.group)] += refund['total_cents']
+        key = (
+            datetime.fromisoformat(refund["recorded_at"])
+            .astimezone(ZoneInfo(BUSINESS_TIMEZONE))
+            .hour
+            if filters.group == "hourly"
+            else _bucket(date.fromisoformat(refund["business_date"]), filters.group)
+        )
+        refund_buckets[key] += refund["total_cents"]
+    for index, row in enumerate(series):
+        key = (
+            index
+            if filters.group == "hourly"
+            else _bucket(date.fromisoformat(row["period_start"]), filters.group)
+        )
+        row["refunded_cents"] = refund_buckets[key]
+        row["net_sales_cents"] = row["revenue_cents"] - row["refunded_cents"]
+    summary.update(
+        units_refunded=details["units_refunded"],
+        verified_tax_cents=sum(
+            tx["tax_remainder_cents"] for tx in transactions if tx["tax_verified"]
+        ),
+        refunded_tax_cents=sum(r["tax_cents"] for r in refunds),
+    )
+    prior_refunded = sum(r["total_cents"] for r in previous_refunds)
+    comparisons = [
+        dict(metric=label, current_cents=current, **comparison(current, old))
+        for label, current, old in (
+            ("Gross sales", total, prior),
+            ("Refunds", refunded, prior_refunded),
+            ("Net sales", total - refunded, prior - prior_refunded),
+        )
+    ]
+    maximum = max(
+        (
+            abs(row[key])
+            for row in series
+            for key in ("revenue_cents", "refunded_cents", "net_sales_cents")
+        ),
+        default=0,
+    )
     for row in series:
-        row['refunded_cents'] = refund_buckets[_bucket(date.fromisoformat(row['period_start']), filters.group)]
-        row['net_sales_cents'] = row['revenue_cents'] - row['refunded_cents']
+        row["chart_bars"] = [
+            dict(
+                label=label,
+                cents=row[key],
+                width=f"{Decimal(abs(row[key])) * 50 / maximum:.4f}" if maximum else "0",
+                kind=kind,
+            )
+            for key, label, kind in (
+                ("revenue_cents", "Gross", "gross"),
+                ("refunded_cents", "Refunds", "refund"),
+                ("net_sales_cents", "Net", "net"),
+            )
+        ]
+    payment_rows = sorted(
+        payment.values(), key=lambda row: (-row["revenue_cents"], row["payment_method"])
+    )
+    max_payment = max((row["revenue_cents"] for row in payment_rows), default=0)
+    for row in payment_rows:
+        row["width"] = (
+            f"{Decimal(row['revenue_cents']) * 50 / max_payment:.4f}" if max_payment else "0"
+        )
     return {
+        **details,
+        "comparisons": comparisons,
         "refunds": refunds,
         "filters": filters,
         "store": store,
@@ -321,9 +538,7 @@ def build_analytics(filters):
         "series": series,
         "products": ranked,
         "product_count": len(products),
-        "payment_rows": sorted(
-            payment.values(), key=lambda row: (-row["revenue_cents"], row["payment_method"])
-        ),
+        "payment_rows": payment_rows,
         "transactions": transactions,
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }

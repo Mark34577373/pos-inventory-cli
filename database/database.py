@@ -76,6 +76,10 @@ def initialize_database(seed=True, *, allow_missing_products=False):
             migrate_analytics(conn)
             from database.refund_migration import migrate_refunds
             migrate_refunds(conn)
+            from database.settings_migration import migrate_settings
+            migrate_settings(conn)
+            from database.advanced_analytics_migration import migrate_advanced_analytics
+            migrate_advanced_analytics(conn)
             validate_schema(conn, require_current=True)
             validate_integrity(conn, allow_missing_products=allow_missing_products)
 

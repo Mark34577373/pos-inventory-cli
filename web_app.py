@@ -21,7 +21,7 @@ from werkzeug.exceptions import HTTPException, SecurityError
 
 from analytics_routes import bp as analytics_blueprint
 from auth_routes import bp as auth_blueprint
-from config import TAX_RATE, business_now
+from config import BUSINESS_TIMEZONE, business_now
 from database.database import get_store_connection as get_db_connection
 from database.database import initialize_database
 from inventory_routes import bp as inventory_blueprint
@@ -48,10 +48,14 @@ from services.inventory_management import (
 )
 from services.money import calculate_tax_cents, format_cents, from_cents, parse_cash
 from services.refunds import get_sale
+from services.settings import get_settings, tax_rate
 from services.transaction_history import query_transactions
 from services.transaction_service import complete_transaction
+from settings_routes import bp as settings_blueprint
 
 app = Flask(__name__)
+
+app.register_blueprint(settings_blueprint)
 app.register_blueprint(auth_blueprint)
 app.register_blueprint(analytics_blueprint)
 app.register_blueprint(inventory_blueprint)
@@ -84,7 +88,7 @@ if os.environ.get("TCCP_ENV") == "production":
     try:
         with closing(sqlite3.connect(Path(os.environ["TCCP_DB_PATH"]).resolve().as_uri() + "?mode=ro", uri=True)) as startup_db:
             startup_db.execute('PRAGMA foreign_keys=ON')
-            if startup_db.execute("SELECT 1 FROM schema_migrations WHERE version=17").fetchone() is None:
+            if startup_db.execute("SELECT 1 FROM schema_migrations WHERE version=21").fetchone() is None:
                 raise RuntimeError("Run the explicit database migration before production startup.")
             from database.validation import validate_integrity, validate_schema
             validate_schema(startup_db, require_current=True)
@@ -211,6 +215,19 @@ def request_error(error):
     return response
 
 
+@app.context_processor
+def store_preferences():
+    if not getattr(g, "store", None):
+        return {}
+    try:
+        preferences = get_settings()
+    except (sqlite3.Error, ValueError):
+        # Error pages must render even when settings storage is unavailable.
+        # Financial services still fail closed; this supplies no tax fallback.
+        preferences = None
+    return {"store_preferences": preferences, "business_timezone": BUSINESS_TIMEZONE}
+
+
 @app.after_request
 def security_headers(response):
     response.headers["X-Content-Type-Options"] = "nosniff"
@@ -317,7 +334,8 @@ def get_sale_data():
             "stock_ok": quantity <= product["quantity"],
         })
 
-    tax_cents = calculate_tax_cents(subtotal_cents, TAX_RATE)
+    current_tax_rate = tax_rate()
+    tax_cents = calculate_tax_cents(subtotal_cents, current_tax_rate)
     total_cents = subtotal_cents + tax_cents
 
     return {
@@ -326,7 +344,7 @@ def get_sale_data():
         "subtotal_cents": subtotal_cents,
         "tax_cents": tax_cents,
         "total_cents": total_cents,
-        "tax_rate_percent": TAX_RATE * 100,
+        "tax_rate_percent": current_tax_rate * 100,
         "has_stock_problem": (
             bool(unavailable_items)
             or any(not item["stock_ok"] for item in items)
@@ -452,7 +470,7 @@ def dashboard():
     return render_template(
         "dashboard.html",
         products=products,
-        tax_rate=TAX_RATE,
+        tax_rate=tax_rate(),
         **summary,
         today_sales_cents=today_summary["today_sales_cents"],
         today_transaction_count=today_summary["today_transaction_count"],
@@ -836,6 +854,8 @@ def transaction_receipt(transaction_id):
         abort(413, description=str(error))
     row = state['transaction']
     receipt_data = dict(row)
+    from services.settings import read_receipt_snapshot
+    receipt_data['profile'] = read_receipt_snapshot(receipt_data.get('receipt_snapshot'))
     receipt_data['items'] = [dict(name=item['product_name'], quantity=item['quantity'], unit_price_cents=item['price_cents'], line_total_cents=item['line_total_cents']) for item in state['items']]
     receipt_data['transaction_id'] = row['id']
     receipt_data['subtotal_cents'] = sum(item['line_total_cents'] for item in state['items'])

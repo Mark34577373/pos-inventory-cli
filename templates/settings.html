@@ -1,0 +1,45 @@
+{% extends 'base.html' %}
+{% block title %}Business settings | TCCP{% endblock %}
+{% block page_heading %}Business settings{% endblock %}
+{% macro start(section, title, description) %}
+<section class="panel settings-section" id="{{ section }}"><h2>{{ title }}</h2><p class="muted">{{ description }}</p>
+{% if ui_can_write %}<form method="post" action="{{ url_for('settings.save', section=section) }}" data-settings-form{% if section=='tax' %} data-confirm="Apply this tax rate to future sales? Completed sales and refunds keep their original amounts."{% endif %}>
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="revision" value="{{ settings.revision }}">
+{% else %}<div class="readonly-preferences">{% endif %}
+<fieldset{% if not ui_can_write %} disabled{% endif %}>
+{% endmacro %}
+{% macro field(key,label,value,limit=500,multiline=false,required=false,type='text') %}
+<div class="form-field"><label for="setting-{{ key }}">{{ label }}</label>{% if multiline %}<textarea id="setting-{{ key }}" name="{{ key }}" maxlength="{{ limit }}" rows="3"{% if required %} required{% endif %}>{{ value }}</textarea>{% else %}<input id="setting-{{ key }}" name="{{ key }}" value="{{ value }}" maxlength="{{ limit }}" type="{{ type }}"{% if required %} required{% endif %}>{% endif %}</div>
+{% endmacro %}
+{% macro finish() %}{% if ui_can_write %}<button type="submit" class="primary-button">Save changes</button>{% endif %}</fieldset>{% if ui_can_write %}</form>{% else %}</div>{% endif %}</section>{% endmacro %}
+{% block content %}
+<nav class="settings-nav" aria-label="Settings sections">{% for id,title in [('business','Business profile'),('tax','Tax & checkout'),('receipt','Receipts'),('inventory','Inventory'),('analytics','Dashboard & analytics'),('security','Account & security')] %}<a href="#{{ id }}">{{ title }}</a>{% endfor %}</nav>
+<p>Preferences belong to this store. Currency is USD. Business timezone is {{ business_timezone }}; changing historical timezone or currency is not supported.</p>
+{% if not ui_can_write %}<p role="status">Settings are read-only in this demonstration or deployment.</p>{% endif %}
+<div class="settings-grid">
+{{ start('business','Business profile','Contact details are optional. Only include information appropriate for your business.') }}
+{{ field('store_name','Store display name',settings.store_name,100,required=true) }}
+{{ field('business_email','Business contact email',settings.business_email,254,type='email') }}
+{{ field('phone','Business phone',settings.phone,80,type='tel') }}
+{{ field('address','Business address',settings.address,500,true) }}
+{{ field('description','Business description',settings.description,1000,true) }}{{ finish() }}
+{{ start('tax','Tax & checkout','Applies to future sales only. Tax is rounded half up once on the subtotal, to the nearest cent. The owner is responsible for choosing the legally appropriate rate.') }}
+{{ field('tax_percent','Tax rate (%) — 0–100; up to four decimal places',settings.tax_percent,9,required=true) }}{{ finish() }}
+{{ start('receipt','Receipt preferences','Plain text only. These details are saved with each new sale; completed receipts retain their recorded profile.') }}
+{{ field('receipt_name','Receipt store name',settings.receipt_name,100,required=true) }}
+{{ field('receipt_contact','Receipt contact details',settings.receipt_contact,500,true) }}
+{{ field('receipt_header','Receipt header',settings.receipt_header,500,true) }}
+{{ field('receipt_footer','Receipt footer',settings.receipt_footer,500,true) }}
+{{ field('thank_you','Thank-you message',settings.thank_you,200) }}{{ finish() }}
+<section class="panel settings-section"><h2>Saved receipt preview</h2><p class="muted">Preview of saved preferences. No sale or payment is created.</p><div class="receipt-paper"><h3>{{ settings.receipt_name }}</h3><p class="receipt-text">{{ settings.receipt_contact }}</p><p class="receipt-text">{{ settings.receipt_header }}</p><p>Sample item · $10.00</p><p>Tax: {{ preview_tax|money }} · Preview only</p><p class="receipt-text">{{ settings.receipt_footer }}</p><p>{{ settings.thank_you }}</p><strong>SIMULATED RECEIPT PREVIEW</strong></div></section>
+{{ start('inventory','Inventory preferences','Products with a blank threshold use this default. Explicit product thresholds, quantities and stock history are unchanged. Zero stock is always out of stock.') }}
+{{ field('low_stock_default','Default low-stock threshold (0–1000000)',settings.low_stock_default,7,required=true) }}{{ finish() }}
+{{ start('analytics','Dashboard & analytics','Preferences affect presentation, not financial records.') }}
+<div class="form-field"><label for="setting-period">Default reporting period</label><select id="setting-period" name="report_period">{% for period in periods %}<option value="{{ period }}"{% if settings.report_period==period %} selected{% endif %}>{{ period|replace('_',' ')|title }}</option>{% endfor %}</select></div>
+<div class="form-field"><label for="setting-view">Preferred analytics landing section</label><select id="setting-view" name="landing_view">{% for view in views %}<option value="{{ view }}"{% if settings.landing_view==view %} selected{% endif %}>{{ view|title }}</option>{% endfor %}</select></div>
+<label><input type="checkbox" name="show_stock" value="1"{% if settings.show_stock %} checked{% endif %}> Show dashboard stock alerts</label>
+<label><input type="checkbox" name="show_recent" value="1"{% if settings.show_recent %} checked{% endif %}> Show dashboard recent transactions</label>{{ finish() }}
+<section id="security" class="panel settings-section"><h2>Account & security</h2>{% if g.user %}<p>Signed in as {{ g.user.email }}. You are the owner of {{ g.store.name }}.</p><p>Passwords use salted scrypt hashes. Login sessions expire after eight hours. Sign out using the account controls above.</p><a href="{{ url_for('auth.account') }}">Account details</a>{% else %}<p>Public demo sessions cannot manage accounts.</p>{% endif %}<p>Password changes, recovery and multi-factor authentication are not available.</p></section>
+</div>
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='js/settings.js') }}" defer></script>{% endblock %}

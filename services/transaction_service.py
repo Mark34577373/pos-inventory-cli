@@ -1,9 +1,10 @@
 # services/transaction_service.py
 
-from config import TAX_RATE, business_now
+from config import business_now
 from database.database import get_store_connection as get_db_connection
 from database.tenancy import require_store_write
 from services.money import calculate_tax_cents, from_cents, to_cents
+from services.settings import get_settings, receipt_snapshot
 
 
 def complete_transaction(cart_items, total_amount, payment_method, *, checkout_token=None, cash_received_cents=None):
@@ -30,6 +31,7 @@ def complete_transaction(cart_items, total_amount, payment_method, *, checkout_t
                 prior = cursor.execute("SELECT id FROM transactions WHERE store_id=authorized_store_id() AND checkout_token=?", (checkout_token,)).fetchone()
                 if prior:
                     return prior["id"]
+            settings = get_settings(conn)
             subtotal_cents = 0
             transaction_items = []
             for item in cart_items:
@@ -45,7 +47,7 @@ def complete_transaction(cart_items, total_amount, payment_method, *, checkout_t
                     raise ValueError("Item quantity must be a positive whole number.")
 
                 product = cursor.execute(
-                    "SELECT name, quantity, price_cents FROM products "
+                    "SELECT name, quantity, price_cents, category_id, (SELECT name FROM categories c WHERE c.id=products.category_id AND c.store_id=products.store_id) AS category_name FROM products "
                     "WHERE store_id=authorized_store_id() AND id = ? AND is_active = 1",
                     (product_id,),
                 ).fetchone()
@@ -59,10 +61,10 @@ def complete_transaction(cart_items, total_amount, payment_method, *, checkout_t
                 price_cents = product["price_cents"]
                 subtotal_cents += price_cents * quantity
                 transaction_items.append(
-                    (product_id, quantity, price_cents, product["name"])
+                    (product_id, quantity, price_cents, product["name"], product["category_id"], product["category_name"] or "Uncategorized")
                 )
 
-            tax_cents = calculate_tax_cents(subtotal_cents, TAX_RATE)
+            tax_cents = calculate_tax_cents(subtotal_cents, settings['tax_rate'])
             total_cents = subtotal_cents + tax_cents
             if submitted_total_cents != total_cents:
                 raise ValueError(
@@ -74,14 +76,14 @@ def complete_transaction(cart_items, total_amount, payment_method, *, checkout_t
             timestamp = business_now().strftime("%Y-%m-%d %H:%M:%S")
             cursor.execute(
                 "INSERT INTO transactions "
-                "(timestamp, total, total_cents, payment_method, checkout_token, cash_received_cents, tax_rate_percent, store_id) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, authorized_store_id())",
-                (timestamp, float(from_cents(total_cents)), total_cents, payment_method, checkout_token, cash_received_cents, str(TAX_RATE * 100)),
+                "(timestamp, total, total_cents, payment_method, checkout_token, cash_received_cents, tax_rate_percent, receipt_snapshot, store_id) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, authorized_store_id())",
+                (timestamp, float(from_cents(total_cents)), total_cents, payment_method, checkout_token, cash_received_cents, str(settings['tax_percent']), receipt_snapshot(settings)),
             )
             transaction_id = cursor.lastrowid
 
             conn.audit_context.update(type='checkout', reason='Simulated checkout', transaction_id=transaction_id)
-            for product_id, quantity, price_cents, product_name in transaction_items:
+            for product_id, quantity, price_cents, product_name, category_id, category_name in transaction_items:
                 cursor.execute(
                     "UPDATE products SET quantity=quantity-? WHERE store_id=authorized_store_id() AND id=? AND quantity>=? AND is_active=1",
                     (quantity, product_id, quantity))
@@ -89,8 +91,8 @@ def complete_transaction(cart_items, total_amount, payment_method, *, checkout_t
                     raise ValueError("Stock changed while processing checkout. Please retry.")
                 cursor.execute(
                     "INSERT INTO transaction_items "
-                    "(transaction_id, product_id, quantity, price, price_cents, product_name, store_id) "
-                    "VALUES (?, ?, ?, ?, ?, ?, authorized_store_id())",
+                    "(transaction_id, product_id, quantity, price, price_cents, product_name, category_id_snapshot, category_name_snapshot, store_id) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, authorized_store_id())",
                     (
                         transaction_id,
                         product_id,
@@ -98,6 +100,8 @@ def complete_transaction(cart_items, total_amount, payment_method, *, checkout_t
                         float(from_cents(price_cents)),
                         price_cents,
                         product_name,
+                        category_id,
+                        category_name,
                     ),
                 )
     finally:

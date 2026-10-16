@@ -1,4 +1,3 @@
-
 import sqlite3
 import tkinter as tk
 from decimal import Decimal, InvalidOperation
@@ -13,6 +12,7 @@ from services.inventory import (
     set_product_quantity,
     update_product_details,
 )
+from services.settings import default_threshold
 from ui.dialogs import create_modal_window
 
 BG = "#f8f9fa"
@@ -31,8 +31,10 @@ def get_inventory_products():
     return list_active_products()
 
 
-def get_stock_display(quantity, threshold=LOW_STOCK_THRESHOLD):
+def get_stock_display(quantity, threshold=None):
     """Return the stock label, color, and font for a quantity."""
+    if threshold is None:
+        threshold = default_threshold()
     if quantity <= 0:
         return "OUT OF STOCK", RED, ("Arial", 10, "bold")
 
@@ -185,7 +187,7 @@ def create_inventory_view(parent_frame):
                 sum(
                     1
                     for product in all_products
-                    if 0 < product["quantity"] <= (product["low_stock_threshold"] if product["low_stock_threshold"] is not None else LOW_STOCK_THRESHOLD)
+                    if 0 < product["quantity"] <= (product["low_stock_threshold"] if product["low_stock_threshold"] is not None else default_threshold())
                 )
             )
         )
@@ -239,7 +241,7 @@ def create_inventory_view(parent_frame):
 
             stock_text, stock_color, stock_font = get_stock_display(
                 product["quantity"],
-                product["low_stock_threshold"] if product["low_stock_threshold"] is not None else LOW_STOCK_THRESHOLD,
+                product["low_stock_threshold"] if product["low_stock_threshold"] is not None else default_threshold(),
             )
 
             card = tk.Frame(

@@ -479,7 +479,7 @@ class AuthIsolationTests(unittest.TestCase):
         db.initialize_database(seed=False)
         db.initialize_database(seed=False)
         self.assertEqual(before, self.query("SELECT * FROM products ORDER BY id"))
-        self.assertEqual(self.query("SELECT version FROM schema_migrations"), [{"version": 14}, {"version": 15}, {"version": 16}, {"version": 17}])
+        self.assertEqual(self.query("SELECT version FROM schema_migrations"), [{"version": 14}, {"version": 15}, {"version": 16}, {"version": 17}, {"version": 20}, {"version": 21}])
         login(self.client, "owner@example.com")
         self.assertNotIn(b"Mouse", self.client.get("/inventory").data)
         assign_legacy_owner("owner@example.com")

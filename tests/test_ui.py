@@ -142,6 +142,7 @@ class UITests(unittest.TestCase):
             "/analytics",
             "/reports",
             "/account",
+            "/settings",
             "/missing",
         ]
 

@@ -128,7 +128,7 @@ See [Day 14 design and security notes](docs/DAY14.md) for the route audit, owner
 
 ## Day 15 inventory management
 
-Inventory now supports store-private categories, optional unique SKUs, combined search/category/stock/visibility filters, allowlisted sorting and pagination. Use **Categories**, **Adjust / restock**, and **Stock history** from Inventory. Product forms include category, SKU and a configurable low-stock threshold (blank defaults to 5). Dashboard alerts use those same thresholds and link to restocking.
+Inventory now supports store-private categories, optional unique SKUs, combined search/category/stock/visibility filters, allowlisted sorting and pagination. Use **Categories**, **Adjust / restock**, and **Stock history** from Inventory. Product forms include category, SKU and a configurable low-stock threshold (blank inherits the store default, initially 5). Dashboard alerts use those same thresholds and link to restocking.
 
 Every quantity change is audited atomically with its operation, including checkout and desktop setters. Existing quantities receive an explicit migration baseline; no earlier stock movements are fabricated. History is append-only and private to its store. Returned-stock adjustments do not issue financial refunds.
 
@@ -156,7 +156,7 @@ Checkout now includes quantity increase/decrease, automatic authoritative total 
 
 The approved tax policy allocates original tax cents to original units using proportional largest remainders, with stable line/unit tie-breaking. Repeated partial refunds exactly reconcile to the original sale. Original gross sales stay on sale dates; refunds appear on their refund dates, and net sales including tax = gross minus refunds. Rankings, average sale and payment breakdown retain gross-sale definitions. Summary/period CSVs include refund/net metrics, with a separate refund-ledger CSV. All records, receipts and exports remain private to their authorized store. Public demo remains read-only.
 
-Migration **17** is additive and preserves existing sale/stock history. Stop writers, run `.venv/bin/python manage.py init` (creates a backup), then `.venv/bin/python manage.py check` before starting upgraded web or desktop clients. Production now requires migration 17. No working database is automatically migrated during this development task. No new dependencies are required.
+Migration **17** is additive and preserves existing sale/stock history. Stop writers, run `.venv/bin/python manage.py init` (creates a backup), then `.venv/bin/python manage.py check` before starting upgraded web or desktop clients. At Day 17, production required migration 17; Days 20–21 below supersede this requirement. No working database is automatically migrated during this development task. No new dependencies are required.
 
 See [Day 17 financial rules, workflows, security, migration and recovery](docs/DAY17.md). Earlier milestone documentation describes those milestones at completion; Day 17 supersedes their statements that refunds are unsupported or that production only requires migration 15/16.
 
@@ -179,3 +179,31 @@ Production also validates the database and requires private file permissions on 
 All unsafe browser mutations require CSRF. Current mutation endpoints accept HTML forms, not JSON: unsupported content types return 415; duplicate parameters, conflicting tokens and uploads are rejected. Inputs remain validated server-side, store IDs remain server-authorized, and exact cents/atomic checkout/refunds remain unchanged. Script CSP now rejects inline scripts/handlers; receipt/refund print buttons use external JavaScript. Error logging records operation/endpoint and exception class without raw exception messages outside explicit local debug.
 
 Run `.venv/bin/python -m pytest -q`, `.venv/bin/ruff check .`, `.venv/bin/python -m pip_audit -r requirements.txt`, and `.venv/bin/python manage.py check`. See [Day 19 findings, security architecture, backup/recovery and verification](docs/DAY19.md) for the evidence, ownership-field compatibility, new configuration, deployment assumptions and remaining limitations. Tests and scans do not guarantee production security.
+
+## Days 20–21 business settings and advanced analytics
+
+Open **Settings** for store-private business/contact details, future-sale tax,
+plain-text receipt customization and preview, default stock thresholds, reporting
+preferences and dashboard panel visibility. New receipts and category attribution
+are snapshotted at checkout. Earlier transactions are never rewritten. Blank
+product thresholds now use the store default (initially 5); explicit overrides win.
+Only USD and the deployment's fixed business timezone are supported.
+
+**Sales analytics** adds hourly/daily/weekly/monthly gross–refund–net charts,
+payment charts, historical category performance, product comparisons and trends,
+refund quantities/cohort rates, current-stock intelligence and conservative demand
+estimates. Product/category filters select **whole baskets containing matching
+historical items**, including co-sold items; all accounting widgets and CSVs use
+that same basket cohort. Inventory is explicitly a separate current-stock view.
+New category/product/trend/comparison CSVs supplement every existing export.
+
+Migration **20** adds settings and future-only snapshots; **21** adds analytics
+indexes. These supersede older production schema requirements below. Back up,
+stop writers, run `python manage.py init`, then `python manage.py check` before
+starting upgraded clients. No new dependencies or environment variables are
+needed. Production requires schema versions 14, 15, 16, 17, 20 and 21. This task
+never migrates your working database automatically.
+
+See the [Days 20–21 implementation report](docs/DAYS20-21.md) for exact metric,
+filter, comparison and forecasting definitions, migration/recovery instructions,
+file manifest, verification results and manual QA limitations.

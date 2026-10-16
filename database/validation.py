@@ -1,6 +1,6 @@
 """Read-only checks around the existing ordered, transactional migrations."""
 
-VERSIONS = (14, 15, 16, 17)
+VERSIONS = (14, 15, 16, 17, 20, 21)
 COLUMNS = {
     14: {
         "products": "id name price price_cents quantity is_active store_id",
@@ -70,6 +70,18 @@ TRIGGERS = {
         "transaction_items_refunded_immutable_update",
     ),
 }
+
+COLUMNS[20] = {
+    "store_settings": "store_id business_email phone address description receipt_name receipt_contact receipt_header receipt_footer thank_you tax_units low_stock_default report_period landing_view show_stock show_recent revision",
+    "transactions": "receipt_snapshot",
+    "transaction_items": "category_id_snapshot category_name_snapshot",
+}
+INDEXES[20] = ()
+TRIGGERS[20] = ("store_settings_defaults", "settings_owner_immutable")
+
+COLUMNS[21] = {}
+INDEXES[21] = ("adjustments_initial_history", "items_store_product_cohort", "items_store_category_cohort")
+TRIGGERS[21] = ()
 
 # Include every ownership/numeric/audit guard, including desktop compatibility.
 TRIGGERS[14] += tuple(
