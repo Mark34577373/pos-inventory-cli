@@ -1,6 +1,6 @@
 """Read-only checks around the existing ordered, transactional migrations."""
 
-VERSIONS = (14, 15, 16, 17, 20, 21, 22)
+VERSIONS = (14, 15, 16, 17, 20, 21, 22, 24, 25, 26)
 COLUMNS = {
     14: {
         "products": "id name price price_cents quantity is_active store_id",
@@ -86,6 +86,32 @@ TRIGGERS[21] = ()
 COLUMNS[22] = {"inventory_alerts": "id store_id product_id product_name kind severity quantity threshold created_at updated_at read_at dismissed_at resolved_at"}
 INDEXES[22] = ("alerts_active_product", "alerts_store_date", "alerts_unread", "alerts_store_kind", "alerts_product_history")
 TRIGGERS[22] = ("alerts_product_insert", "alerts_product_update", "alerts_product_legacy", "alerts_default_threshold", "alerts_history_guard", "alerts_no_delete")
+
+COLUMNS[24] = {
+    "customers": "id store_id name email phone notes is_active created_at updated_at",
+    "transactions": "customer_id customer_name_snapshot discount_cents discount_kind discount_value",
+    "transaction_items": "discount_cents discount_base_cents discount_bonus_units",
+}
+INDEXES[24] = ("customers_directory", "transactions_customer")
+TRIGGERS[24] = ("customers_owner_immutable", "customers_no_delete", "transaction_customer_insert",
+                "transaction_customer_update", "transaction_customer_immutable", "line_discount_insert", "line_discount_update", "sale_discount_immutable", "line_discount_immutable")
+
+COLUMNS[25] = {
+    "suppliers": "id store_id name contact email phone address notes is_active created_at updated_at",
+    "products": "unit_cost_cents supplier_id supplier_sku",
+    "transaction_items": "unit_cost_cents",
+    "purchase_orders": "id store_id supplier_id supplier_name status expected_date notes business_date created_at",
+    "purchase_order_items": "id store_id order_id product_id product_name quantity unit_cost_cents",
+    "purchase_receipts": "id store_id order_id actor_user_id business_date recorded_at idempotency_key request_hash",
+    "purchase_receipt_items": "id store_id order_id receipt_id order_item_id quantity unit_cost_cents",
+    "stock_adjustments": "purchase_receipt_id",
+}
+INDEXES[25] = ("suppliers_directory", "products_supplier", "orders_store_date", "orders_supplier", "order_items_store", "receipts_store_date", "receipt_items_order")
+TRIGGERS[25] = ("suppliers_owner_immutable", "suppliers_no_delete", "purchase_orders_owner_immutable", "purchase_orders_no_delete", "product_supplier_insert", "product_supplier_update", "purchase_line_draft_insert", "purchase_line_draft_update", "purchase_line_draft_delete", "purchase_line_identity", "purchase_order_transition", "receiving_cap", "purchase_receipts_update_immutable", "purchase_receipts_delete_immutable", "purchase_receipt_items_update_immutable", "purchase_receipt_items_delete_immutable", "adjustment_receipt_store", "sale_cost_immutable")
+
+COLUMNS[26] = {"expenses": "id store_id category description amount_cents expense_date supplier_id notes entry_kind reverses_id actor_user_id created_at idempotency_key request_hash"}
+INDEXES[26] = ("expenses_store_date", "expenses_store_category")
+TRIGGERS[26] = ("expense_reversal_guard", "expenses_update_immutable", "expenses_delete_immutable")
 
 # Include every ownership/numeric/audit guard, including desktop compatibility.
 TRIGGERS[14] += tuple(

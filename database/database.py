@@ -31,6 +31,7 @@ def get_db_connection():
     conn.create_function("audit_type", 0, lambda: conn.audit_context.get('type', 'correction'))
     conn.create_function("audit_reason", 0, lambda: conn.audit_context.get('reason', 'Stock correction by local client or maintenance'))
     conn.create_function("audit_transaction_id", 0, lambda: conn.audit_context.get('transaction_id'))
+    conn.create_function("audit_purchase_receipt_id", 0, lambda: conn.audit_context.get("purchase_receipt_id"))
     conn.create_function("audit_refund_id", 0, lambda: conn.audit_context.get("refund_id"))
     conn.row_factory = sqlite3.Row  # Allows accessing columns by name like dictionary keys
     conn.execute("PRAGMA foreign_keys = ON")
@@ -82,6 +83,12 @@ def initialize_database(seed=True, *, allow_missing_products=False):
             migrate_advanced_analytics(conn)
             from database.alerts_migration import migrate_alerts
             migrate_alerts(conn)
+            from database.retail_migration import migrate_retail
+            migrate_retail(conn)
+            from database.purchasing_migration import migrate_purchasing
+            migrate_purchasing(conn)
+            from database.expenses_migration import migrate_expenses
+            migrate_expenses(conn)
             validate_schema(conn, require_current=True)
             validate_integrity(conn, allow_missing_products=allow_missing_products)
 

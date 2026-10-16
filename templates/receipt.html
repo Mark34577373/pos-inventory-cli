@@ -74,6 +74,7 @@
         <div class="receipt-divider"></div>
 
         <div class="receipt-totals">
+            {% if receipt.discount_cents %}<div><span>Original merchandise</span><strong>{{ (receipt.subtotal_cents+receipt.discount_cents)|money }}</strong></div><div><span>Before-tax discount</span><strong>−{{ receipt.discount_cents|money }}</strong></div>{% endif %}
             <div>
                 <span>Subtotal</span>
                 <strong>

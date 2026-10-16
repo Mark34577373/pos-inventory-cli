@@ -2,6 +2,7 @@
 {% block title %}Sales analytics | TCCP{% endblock %}
 {% block page_heading %}Sales analytics{% endblock %}
 {% block content %}
+<p><a class="secondary-button" href="{{ url_for('business.financials') }}">Business financial overview</a></p>
 <section class="page-intro"><div><p class="eyebrow">BUSINESS PERFORMANCE</p><h2>{{ store.name }} · Sales analytics</h2><p class="muted">Committed simulated sales · {{ filters.start }} through {{ filters.end }}, inclusive · {{ timezone }}</p></div><a class="secondary-button" href="{{ url_for('reports') }}">Sales reports</a></section>
 <section class="content-panel no-print">
 <form method="get" action="{{ url_for('analytics.overview') }}" class="inventory-filters analytics-filter" id="analytics-filters">
@@ -20,7 +21,7 @@
 </section>
 <section id="overview" class="stats-grid" aria-label="Sales metrics">
 <article class="stat-card"><span class="stat-label">Recorded sale totals</span><strong class="stat-value">{{ summary.revenue_cents|money }}</strong><small class="stat-note">Includes tax · {{ summary.transaction_count }} transactions</small></article>
-<article class="stat-card"><span class="stat-label">Item sales</span><strong class="stat-value">{{ summary.item_sales_cents|money }}</strong><small class="stat-note">Recorded prices before tax · {{ summary.units_sold }} units</small></article>
+<article class="stat-card"><span class="stat-label">Item sales</span><strong class="stat-value">{{ summary.item_sales_cents|money }}</strong><small class="stat-note">After discounts, before tax · {{ summary.units_sold }} units</small></article>
 <article class="stat-card"><span class="stat-label">Tax / reconciliation difference</span><strong class="stat-value">{{ summary.tax_remainder_cents|money }}</strong><small class="stat-note">Sale totals minus recorded line items</small></article>
 <article class="stat-card"><span class="stat-label">Average order value</span><strong class="stat-value">{{ summary.average_order_cents|money }}</strong><small class="stat-note">Sale totals ÷ committed transactions · rounded half up</small></article>
 <article class="stat-card"><span class="stat-label">Refunds (refund date)</span><strong class="stat-value">{{ summary.refunded_cents|money }}</strong><small>{{ summary.refund_count }} simulated refunds</small></article>

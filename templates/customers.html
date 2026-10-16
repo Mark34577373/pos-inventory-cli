@@ -1,0 +1,19 @@
+{% extends 'base.html' %}
+{% block title %}Customers | TCCP{% endblock %}
+{% block page_heading %}Customers{% endblock %}
+{% block content %}
+<section class="panel">
+{% if ui_can_write %}<a class="primary-button" href="{{ url_for('customers.edit') }}">Add customer</a>{% endif %}
+<form method="get" class="filter-form">
+<label for="customer-search">Search name, email or phone</label><input type="search" id="customer-search" name="q" value="{{ filters.q }}" maxlength="100">
+<label for="customer-state">Status</label><select id="customer-state" name="state">{% for state in ['active','inactive','all'] %}<option value="{{ state }}" {% if state==filters.state %}selected{% endif %}>{{ state|title }}</option>{% endfor %}</select>
+<label for="customer-sort">Sort</label><select id="customer-sort" name="sort">{% for sort in ['name','newest','oldest'] %}<option value="{{ sort }}" {% if sort==filters.sort %}selected{% endif %}>{{ sort|title }}</option>{% endfor %}</select>
+<button class="secondary-button" type="submit">Search / filter</button></form>
+<a class="secondary-button" data-export href="{{ url_for('customers.export',q=filters.q,state=filters.state,sort=filters.sort) }}">Export matching summaries</a>
+<p>{{ count }} customers · Page {{ page }} of {{ pages }}</p>
+<div class="table-wrap"><table><thead><tr><th scope="col">Customer</th><th scope="col">Email</th><th scope="col">Phone</th><th scope="col">Status</th></tr></thead><tbody>
+{% for customer in customers %}<tr><td><a href="{{ url_for('customers.detail',customer_id=customer.id) }}">{{ customer.name }}</a></td><td>{{ customer.email or '—' }}</td><td>{{ customer.phone or '—' }}</td><td>{{ 'Active' if customer.is_active else 'Inactive' }}</td></tr>{% else %}<tr><td colspan="4">No customers match these filters.</td></tr>{% endfor %}
+</tbody></table></div>
+<nav aria-label="Customer pages">{% if pagination.previous %}<a href="{{ pagination.previous }}">Previous</a>{% endif %} {% if pagination.next %}<a href="{{ pagination.next }}">Next</a>{% endif %}</nav>
+</section>
+{% endblock %}

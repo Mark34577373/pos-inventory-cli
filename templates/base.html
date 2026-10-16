@@ -21,9 +21,14 @@
             <div class="sidebar-label">WORKSPACE</div>
             <nav class="sidebar-nav" aria-label="Main navigation">
                 {{ nav_item('dashboard','Dashboard','⌂',request.endpoint=='dashboard') }}
-                {{ nav_item('inventory','Inventory','▤',request.endpoint in ['inventory','add_product','edit_product','update_quantity','remove_product'] or (request.endpoint or '').startswith('inventory_tools.')) }}
+                {{ nav_item('inventory','Inventory','▤',request.endpoint in ['inventory','add_product','edit_product','update_quantity','remove_product'] or (request.endpoint or '').startswith('inventory_tools.') or request.endpoint=='purchasing.product_cost') }}
                 {{ nav_item('sale','New sale' if ui_can_write else 'Checkout preview','＋',request.endpoint in ['sale','sale_add','sale_update','sale_remove','sale_cancel','sale_checkout']) }}
                 {{ nav_item('transactions','Transactions','▧',request.endpoint in ['transactions','transaction_detail','transaction_receipt','receipt'] or (request.endpoint or '').startswith('refunds.')) }}
+                {{ nav_item('customers.directory','Customers','♙',(request.endpoint or '').startswith('customers.')) }}
+                {{ nav_item('purchasing.directory','Suppliers','♧',request.endpoint in ['purchasing.directory','purchasing.supplier_edit','purchasing.supplier_detail','purchasing.supplier_deactivate']) }}
+                {{ nav_item('purchasing.orders','Purchases','▣',(request.endpoint or '').startswith('purchasing.order')) }}
+                {{ nav_item('business.expenses','Expenses','▦',(request.endpoint or '').startswith('business.expense')) }}
+                {{ nav_item('business.financials','Financial overview','▨',request.endpoint in ['business.financials','business.financial_export']) }}
                 {{ nav_item('analytics.overview','Sales analytics','▥',(request.endpoint or '').startswith('analytics.')) }}
                 {{ nav_item('alerts.overview','Notifications','🔔',(request.endpoint or '').startswith('alerts.')) }}
                 {{ nav_item('settings.overview','Settings','⚙',(request.endpoint or '').startswith('settings.')) }}

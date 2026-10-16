@@ -32,7 +32,7 @@
                 type="search"
                 name="q"
                 value="{{ search_term }}"
-                placeholder="Search by product name..."
+                placeholder="Search by product name or SKU..."
             >
             <label class="sr-only" for="sale-category">Category</label><select id="sale-category" name="category"><option value="">All categories</option>{% for category in categories %}<option value="{{ category.id }}" {% if selected_category|string == category.id|string %}selected{% endif %}>{{ category.name }}</option>{% endfor %}</select>
             <button class="secondary-button" type="submit">Search / filter</button>
@@ -49,7 +49,7 @@
 
                 <div class="sale-product-info">
                     <h3>{{ product.name }}</h3>
-                    <p class="muted">Product #{{ product.id }}</p>
+                    <p class="muted">Product #{{ product.id }}{% if product.sku %} · SKU {{ product.sku }}{% endif %}</p>
                     <div class="sale-product-bottom">
                         <strong class="sale-product-price">
                             {{ product.price_cents|money }}
@@ -134,6 +134,22 @@
         </div>
         {% endif %}
 
+        <section aria-labelledby="sale-customer-heading">
+        <h2 id="sale-customer-heading">Customer</h2>
+        <p>{{ customer.name if customer else 'Guest checkout' }}</p>
+        <form method="get" action="{{ url_for('sale') }}">
+        <label for="sale-customer-search">Find customer by name, email or phone</label>
+        <input id="sale-customer-search" name="customer_q" maxlength="100" value="{{ request.args.get('customer_q','') }}">
+        <button class="secondary-button" type="submit">Find customer</button></form>
+        {% if ui_can_write %}<form method="post" action="{{ url_for('customers.select_customer') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label for="sale-customer">Customer (optional)</label>
+        <select id="sale-customer" name="customer_id"><option value="">Guest checkout</option>
+        {% if customer %}<option value="{{ customer.id }}" selected>{{ customer.name }} (selected)</option>{% endif %}
+        {% for choice in customer_results.customers %}{% if not customer or choice.id!=customer.id %}<option value="{{ choice.id }}">{{ choice.name }} · #{{ choice.id }}</option>{% endif %}{% endfor %}</select>
+        <button class="secondary-button" type="submit">Apply customer</button></form>
+        <p><a href="{{ url_for('customers.edit') }}">Create customer</a> · {{ customer_results.count }} matches (first 20 shown; refine search)</p>{% endif %}
+        </section>
         {% if items %}
         <div class="cart-items">
             {% for item in items %}
@@ -192,12 +208,20 @@
             {% endfor %}
         </div>
 
+        {% if ui_can_write %}<form method="post" action="{{ url_for('sale_discount') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label for="discount-kind">Before-tax discount</label>
+        <select id="discount-kind" name="kind">{% for kind,label in [('none','No discount'),('fixed','Fixed amount ($)'),('percent','Percentage (%)')] %}<option value="{{ kind }}" {% if discount.kind==kind %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+        <label for="discount-value">Discount value</label><input id="discount-value" name="value" inputmode="decimal" maxlength="30" value="{{ discount.value }}">
+        <p class="field-help">Discounts apply before tax. Each unit must retain at least $0.01 for refund reconciliation.</p>
+        <button class="secondary-button" type="submit">Apply discount</button></form>{% endif %}
         <div class="cart-totals" role="status" aria-live="polite" aria-label="Authoritative cart totals">
             <div>
                 <span>Subtotal</span>
                 <strong>{{ subtotal_cents|money }}</strong>
             </div>
             <div>
+                <span>Discount</span><strong>−{{ discount_cents|money }}</strong></div><div>
                 <span>Tax ({{ tax_rate_percent }}%)</span>
                 <strong>{{ tax_cents|money }}</strong>
             </div>

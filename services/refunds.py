@@ -13,6 +13,7 @@ from config import business_now
 from database.database import get_store_connection
 from database.tenancy import require_store_write
 from services.analytics import ReportLimitError
+from services.discounts import refund_segments, refund_unit_range
 from services.money import calculate_tax_cents
 from services.validation import visible_text
 
@@ -72,7 +73,7 @@ def sale_state(conn, transaction_id):
             for line in lines
         )
     )
-    subtotal = sum(line["quantity"] * line["price_cents"] for line in lines)
+    subtotal = sum(line["quantity"] * line["price_cents"] - line["discount_cents"] for line in lines)
     tax = sale["total_cents"] - subtotal
     try:
         rate = Decimal(sale["tax_rate_percent"]) / 100
@@ -80,26 +81,18 @@ def sale_state(conn, transaction_id):
             eligible
             and rate.is_finite()
             and 0 <= rate <= 1
+            and subtotal > 0
+            and sum(line["discount_cents"] for line in lines) == sale["discount_cents"]
             and tax >= 0
             and calculate_tax_cents(subtotal, rate) == tax
         )
     except (ValueError, TypeError, ArithmeticError):
         eligible = False
-    # Allocate per original unit without expanding up to millions of units.
-    # Equal remainders resolve by line ID, then unit ordinal within that line.
     if eligible:
-        remaining = tax
-        for line in lines:
-            line["unit_tax"], line["remainder"] = divmod(tax * line["price_cents"], subtotal)
-            line["bonus_units"] = 0
-            remaining -= line["unit_tax"] * line["quantity"]
-        for line in sorted(lines, key=lambda row: (-row["remainder"], row["id"])):
-            line["bonus_units"] = min(remaining, line["quantity"])
-            remaining -= line["bonus_units"]
-        assert remaining == 0
+        refund_segments(lines, subtotal, tax)
     for line in lines:
         line["remaining_quantity"] = line["quantity"] - line["refunded_quantity"]
-        line["line_total_cents"] = line["quantity"] * line["price_cents"]
+        line["line_total_cents"] = line["quantity"] * line["price_cents"] - line["discount_cents"]
     status = (
         "completed"
         if not summary["count"]
@@ -150,11 +143,7 @@ def quote_refund(state, quantities):
         if line is None or qty > line["remaining_quantity"]:
             raise ValueError("Refund quantity exceeds the eligible remaining quantity.")
         start = line["refunded_quantity"]
-        tax = (
-            line["unit_tax"] * qty
-            + min(start + qty, line["bonus_units"])
-            - min(start, line["bonus_units"])
-        )
+        paid, tax = refund_unit_range(line, start, qty)
         result.append(
             dict(
                 transaction_item_id=line["id"],
@@ -162,7 +151,7 @@ def quote_refund(state, quantities):
                 product_name=line["product_name"],
                 quantity=qty,
                 tax_cents=tax,
-                total_cents=qty * line["price_cents"] + tax,
+                total_cents=paid + tax,
             )
         )
     return dict(

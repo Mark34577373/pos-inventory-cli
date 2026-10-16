@@ -532,13 +532,18 @@ class AnalyticsTests(unittest.TestCase):
             products = [dict(row) for row in conn.execute("SELECT * FROM products ORDER BY id")]
         db.initialize_database(seed=False)
         db.initialize_database(seed=False)
-        self.assertEqual(products, self.query("SELECT * FROM products ORDER BY id"))
+        after = self.query("SELECT * FROM products ORDER BY id")
+        for row in after:
+            self.assertIsNone(row.pop("unit_cost_cents"))
+            self.assertIsNone(row.pop("supplier_id"))
+            self.assertEqual(row.pop("supplier_sku"), "")
+        self.assertEqual(products, after)
         self.assertEqual(
             [
                 row["version"]
                 for row in self.query("SELECT version FROM schema_migrations ORDER BY version")
             ],
-            [14, 15, 16, 17, 20, 21, 22],
+            [14, 15, 16, 17, 20, 21, 22, 24, 25, 26],
         )
         self.assertTrue(check_database()[0])
 

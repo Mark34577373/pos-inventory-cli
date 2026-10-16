@@ -67,7 +67,7 @@ def create_csv(data, kind):
             ["Product limit", filters.top],
             [
                 "Financial model",
-                "Gross sales include tax on sale date. Refunds include tax on refund business date. Net = gross minus refunds. Rankings remain gross before tax. No discounts or voids.",
+                "Gross sales include tax on sale date. Refunds include tax on refund business date. Net = gross minus refunds. Rankings remain gross before tax. Item revenue is after recorded before-tax discounts. No voids.",
             ],
             [
                 "Tax disclosure",

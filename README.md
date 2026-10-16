@@ -249,3 +249,48 @@ See [FINAL_QA_REPORT.md](docs/FINAL_QA_REPORT.md) for actual test/coverage count
 three-account isolation, financial/database checks, measured performance, severity
 findings, manual UI limitations and the Day 24 readiness decision. Automated tests
 do not prove zero vulnerabilities or replace hosted HTTPS, recovery and browser QA.
+
+## Days 24–25 retail workflows
+
+Customers can be searched, edited, deactivated and linked to simulated sales; guest
+checkout remains available. Checkout supports SKU/category search and before-tax
+fixed/percentage discounts with persisted allocations that reconcile partial refunds.
+Each discounted unit must retain at least one cent; free-item sales are unsupported.
+
+Suppliers, preferred-supplier product metadata, optional reference acquisition costs,
+purchase orders and partial receiving now persist per store. Drafts do not change
+stock. Confirmed receiving has durable retry protection and atomically records stock
+history, order progress and inventory alerts. Supplier profiles can start drafts.
+Operating expenses use an append-only ledger with reversals/corrections and bounded
+CSV exports. The financial overview combines existing sales/refunds with purchasing,
+expenses and original sale cost snapshots. Missing costs or unverified legacy tax
+prevent an overall profit estimate. Purchasing is not automatically expensed or paid.
+
+**Schema versions 24, 25 and 26 are required for this milestone.** Version 26 is an
+expense-schema version, not the planned Day 26 visual redesign. With writers stopped,
+use the existing backup/migration/check procedure before restarting:
+
+```bash
+.venv/bin/python manage.py backup --file backups/tccp-before-retail.db
+.venv/bin/python manage.py init
+.venv/bin/python manage.py check
+```
+
+Do not run migration commands against production without reviewing the intended path,
+backup and downtime. Development work does not automatically migrate your working DB.
+No new dependencies or environment variables are needed; existing authentication,
+CSRF, secure-production configuration and read-only public demo behavior still apply.
+The `.env.example` remains the configuration reference.
+
+```bash
+.venv/bin/python -m pytest -q tests/test_customers.py tests/test_discounts.py tests/test_purchasing.py tests/test_business_financials.py tests/test_retail_security_ui.py
+.venv/bin/python -m pytest -q
+.venv/bin/python -m ruff check .
+PYTHONPATH=. .venv/bin/python scripts/retail_benchmark.py
+```
+
+See [Days 24–25 architecture, accounting definitions, migration notes and verification](docs/DAYS24_25.md).
+Image uploads, item-level promotions, supplier payment processing and purchase returns
+are deferred. Product costs are manually maintained reference estimates, not FIFO or
+weighted-average inventory accounting. Real-browser responsive/keyboard checks remain
+manual; no real card information is collected or processed.

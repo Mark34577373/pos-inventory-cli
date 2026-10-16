@@ -684,10 +684,15 @@ class RefundTests(unittest.TestCase):
                 for row in after:
                     if table == "stock_adjustments":
                         self.assertIsNone(row.pop("refund_id"))
+                        self.assertIsNone(row.pop("purchase_receipt_id"))
+                    if table == "products":
+                        self.assertIsNone(row.pop("unit_cost_cents"))
+                        self.assertIsNone(row.pop("supplier_id"))
+                        self.assertEqual(row.pop("supplier_sku"), "")
                 self.assertEqual(rows, after)
             self.assertEqual(
                 [row["version"] for row in self.query("SELECT version FROM schema_migrations")],
-                [14, 15, 16, 17, 20, 21, 22],
+                [14, 15, 16, 17, 20, 21, 22, 24, 25, 26],
             )
             self.assertTrue(check_database()[0])
         finally:

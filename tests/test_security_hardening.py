@@ -145,7 +145,12 @@ class SecurityHardeningTests(unittest.TestCase):
             )
             db.initialize_database(seed=False)
             db.initialize_database(seed=False)
-            self.assertEqual(before, self.query("SELECT * FROM products"))
+            after = self.query("SELECT * FROM products")
+            for row in after:
+                self.assertIsNone(row.pop("unit_cost_cents"))
+                self.assertIsNone(row.pop("supplier_id"))
+                self.assertEqual(row.pop("supplier_sku"), "")
+            self.assertEqual(before, after)
             self.assertTrue(check_database()[0])
         finally:
             db.DB_FILE = original
@@ -463,6 +468,6 @@ assert 'max-age=' in client.get('/login',base_url='https://good.example').header
         before = self.query("SELECT * FROM products")
         for _ in range(2):
             with closing(db.get_db_connection()) as conn:
-                self.assertEqual(validate_schema(conn, require_current=True), (14, 15, 16, 17, 20, 21, 22))
+                self.assertEqual(validate_schema(conn, require_current=True), (14, 15, 16, 17, 20, 21, 22, 24, 25, 26))
                 validate_integrity(conn)
         self.assertEqual(before, self.query("SELECT * FROM products"))

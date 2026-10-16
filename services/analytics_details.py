@@ -104,7 +104,7 @@ def build_details(conn, filters, transactions, items, refunds):
         )
 
     for item in items:
-        cents = item["quantity"] * item["price_cents"]
+        cents = item["quantity"] * item["price_cents"] - item["discount_cents"]
         key, cat = category(item)
         prod = product(item)
         prod["product_name"] = item["product_name"] or prod["product_name"]

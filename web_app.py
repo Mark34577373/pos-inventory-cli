@@ -22,11 +22,14 @@ from werkzeug.exceptions import HTTPException, SecurityError
 from alert_routes import bp as alerts_blueprint
 from analytics_routes import bp as analytics_blueprint
 from auth_routes import bp as auth_blueprint
+from business_routes import bp as business_blueprint
 from config import BUSINESS_TIMEZONE, business_now
+from customer_routes import bp as customers_blueprint
 from database.database import get_store_connection as get_db_connection
 from database.database import initialize_database
 from inventory_routes import bp as inventory_blueprint
 from inventory_routes import pagination_links
+from purchasing_routes import bp as purchasing_blueprint
 from refund_routes import bp as refund_blueprint
 from services.analytics import ReportLimitError, build_analytics, resolve_filters
 from services.auth import load_identity
@@ -57,6 +60,9 @@ from settings_routes import bp as settings_blueprint
 
 app = Flask(__name__)
 
+app.register_blueprint(business_blueprint)
+app.register_blueprint(purchasing_blueprint)
+app.register_blueprint(customers_blueprint)
 app.register_blueprint(alerts_blueprint)
 app.register_blueprint(settings_blueprint)
 app.register_blueprint(auth_blueprint)
@@ -91,7 +97,7 @@ if os.environ.get("TCCP_ENV") == "production":
     try:
         with closing(sqlite3.connect(Path(os.environ["TCCP_DB_PATH"]).resolve().as_uri() + "?mode=ro", uri=True)) as startup_db:
             startup_db.execute('PRAGMA foreign_keys=ON')
-            if startup_db.execute("SELECT 1 FROM schema_migrations WHERE version=22").fetchone() is None:
+            if startup_db.execute("SELECT 1 FROM schema_migrations WHERE version=26").fetchone() is None:
                 raise RuntimeError("Run the explicit database migration before production startup.")
             from database.validation import validate_integrity, validate_schema
             validate_schema(startup_db, require_current=True)
@@ -148,7 +154,7 @@ def protect_writes():
     if g.store:
         context = f"{g.user['id'] if g.user else 'demo'}:{g.store['id']}"
         if session.get('cart_context') != context:
-            for key in ('sale_cart', 'checkout_token', 'last_receipt_id', 'last_receipt'):
+            for key in ('sale_cart', 'sale_customer_id', 'sale_discount', 'checkout_token', 'last_receipt_id', 'last_receipt'):
                 session.pop(key, None)
             session['cart_context'] = context
     if len(request.query_string) > 8192:
@@ -349,11 +355,28 @@ def get_sale_data():
             "stock_ok": quantity <= product["quantity"],
         })
 
+    from services.customers import get_customer
+    customer = None
+    if session.get('sale_customer_id') is not None:
+        try:
+            customer = get_customer(session['sale_customer_id'], active=True)
+        except LookupError:
+            unavailable_items.append('Selected customer is no longer available; choose Guest or another customer')
     current_tax_rate = tax_rate()
-    tax_cents = calculate_tax_cents(subtotal_cents, current_tax_rate)
-    total_cents = subtotal_cents + tax_cents
+    from services.discounts import discount_amount
+    discount = session.get('sale_discount', {'kind': 'none', 'value': ''})
+    discount_cents = 0
+    try:
+        discount_cents = discount_amount([dict(price_cents=item['price_cents'], quantity=item['quantity']) for item in items], discount['kind'], discount['value'])
+    except ValueError as error:
+        unavailable_items.append(str(error))
+    tax_cents = calculate_tax_cents(subtotal_cents - discount_cents, current_tax_rate)
+    total_cents = subtotal_cents - discount_cents + tax_cents
 
     return {
+        "discount_cents": discount_cents,
+        "discount": discount,
+        "customer": customer,
         "items": items,
         "unavailable_items": unavailable_items,
         "subtotal_cents": subtotal_cents,
@@ -636,16 +659,48 @@ def sale():
     except ValueError as error:
         abort(400, description=str(error))
     products = product_data['products']
+    from services.customers import list_customers
+    try:
+        customer_results = list_customers({'q': request.args.get('customer_q', '')})
+    except ValueError as error:
+        abort(400, description=str(error))
 
     return render_template(
         "sale.html",
         products=products,
+        customer_results=customer_results,
         search_term=search_term,
         categories=list_categories(),
         selected_category=request.args.get("category", ""),
         pagination=pagination_links("sale", filters, product_data),
         **get_sale_data(),
     )
+
+
+@app.post("/sale/discount")
+def sale_discount():
+    if set(request.form) - {"csrf_token", "kind", "value"}:
+        abort(400)
+    from services.discounts import discount_amount
+
+    kind, value = request.form.get("kind", "none"), request.form.get("value", "")
+    if kind == "none":
+        value = ""
+    try:
+        data = get_sale_data()
+        discount_amount(
+            [
+                dict(price_cents=row["price_cents"], quantity=row["quantity"])
+                for row in data["items"]
+            ],
+            kind,
+            value,
+        )
+    except ValueError as error:
+        flash(str(error), "error")
+        return redirect(url_for("sale"))
+    session["sale_discount"] = dict(kind=kind, value=value)
+    return redirect(url_for("sale"))
 
 
 @app.route("/sale/add", methods=["POST"])
@@ -752,6 +807,8 @@ def sale_remove(product_id):
 
 @app.route("/sale/cancel", methods=["POST"])
 def sale_cancel():
+    session.pop("sale_discount", None)
+    session.pop("sale_customer_id", None)
     session.pop("checkout_token", None)
     session.pop("sale_cart", None)
     flash("Sale canceled. Inventory has not been changed.", "success")
@@ -820,8 +877,11 @@ def sale_checkout():
             payment_method,
             checkout_token=token,
             cash_received_cents=cash_received_cents,
+            customer_id=session.get("sale_customer_id"),
+            discount_kind=sale_data["discount"]["kind"],
+            discount_value=sale_data["discount"]["value"],
         )
-    except ValueError as error:
+    except (ValueError, LookupError) as error:
         flash(f"Checkout could not be completed: {error}", "error")
         return redirect(url_for("sale"))
     except sqlite3.Error as error:
@@ -832,6 +892,8 @@ def sale_checkout():
         )
         return redirect(url_for("sale"))
 
+    session.pop("sale_discount", None)
+    session.pop("sale_customer_id", None)
     session["last_receipt_id"] = transaction_id
     session.pop("last_receipt", None)
     session.pop("checkout_token", None)

@@ -2,7 +2,7 @@
 
 import re
 from collections import defaultdict
-from contextlib import closing
+from contextlib import closing, nullcontext
 from dataclasses import dataclass, replace
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import ROUND_HALF_UP, Decimal
@@ -332,14 +332,15 @@ def _hourly_series(filters, transactions):
     return rows
 
 
-def build_analytics(filters):
+def build_analytics(filters, *, connection=None):
     # Validate dataclass instances too: internal callers cannot inject sorts or
     # accidentally bypass limits. The store always comes from the auth context.
     if filters.preset not in PRESETS:
         raise ValueError("Choose valid analytics filters.")
     filters = replace(resolve_filters(filters.query_args()), preset=filters.preset)
-    with closing(get_store_connection()) as conn:
-        conn.execute("BEGIN")  # One consistent snapshot for all metrics/exports.
+    with (closing(get_store_connection()) if connection is None else nullcontext(connection)) as conn:
+        if not conn.in_transaction:
+            conn.execute("BEGIN")  # One consistent snapshot for all metrics/exports.
         for key, table, column in (("product", "products", "id"), ("category", "categories", "id")):
             value = getattr(filters, key)
             if value and value not in ("unknown", "uncategorized"):
@@ -359,7 +360,7 @@ def build_analytics(filters):
         cohort, cohort_params = cohort_sql(filters, "t")
         items = conn.execute(
             """SELECT ti.id,ti.transaction_id,ti.product_id,ti.product_name,
-            ti.quantity,ti.price_cents,ti.category_id_snapshot,ti.category_name_snapshot,t.timestamp
+            ti.quantity,ti.price_cents,ti.discount_cents,ti.category_id_snapshot,ti.category_name_snapshot,t.timestamp
             FROM transactions t JOIN transaction_items ti
               ON ti.transaction_id=t.id AND ti.store_id=t.store_id
             WHERE t.store_id=authorized_store_id() AND ti.store_id=authorized_store_id()
@@ -385,7 +386,7 @@ def build_analytics(filters):
     item_totals = defaultdict(int)
     line_counts = defaultdict(int)
     for item in items:
-        line = item["quantity"] * item["price_cents"]
+        line = item["quantity"] * item["price_cents"] - item["discount_cents"]
         item_totals[item["transaction_id"]] += line
         line_counts[item["transaction_id"]] += 1
         row = products.setdefault(
