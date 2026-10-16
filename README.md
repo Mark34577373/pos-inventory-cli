@@ -294,3 +294,103 @@ Image uploads, item-level promotions, supplier payment processing and purchase r
 are deferred. Product costs are manually maintained reference estimates, not FIFO or
 weighted-average inventory accounting. Real-browser responsive/keyboard checks remain
 manual; no real card information is collected or processed.
+
+## Day 26A Hybrid Retail POS
+
+Checkout now has a three-region Hybrid Retail workspace, a large-tile Quick Sale
+preset and a saved Custom layout. Owners can use **POS Designer** to pin/reorder
+products and categories, choose tile colors/density, show/hide placeholders and
+category shortcuts, and manage shared store favorites. Native drag/drop has
+keyboard/touch move-button alternatives. Preview never creates a sale.
+
+**Held sales** persist product quantities, customer, discount instructions and notes;
+they do not reserve stock or record payments. Resume revalidates current prices,
+tax, customer/product availability and stock. One database claim and the original
+checkout token protect against duplicate resume/completion. Use **Release interrupted
+claim** after a lost session; old copies then cannot check out. Hold or clear the
+current cart before resuming another.
+
+Cash change can be previewed from the current server quote before confirmation;
+preview creates no sale or stock movement. Order notes are validated and snapshotted
+on transactions/receipts. **Select store**
+shows only existing authorized owner memberships and replaces the login session;
+it does not grant access. Registration still starts with one private store.
+Checkout timeout recovery blocks repeat sale actions until the recorded transaction
+state is checked, then opens its receipt or allows retry using the original token.
+All money calculations remain server-side and all payments remain simulated.
+
+Day 26A requires **schema 27**, superseding the earlier schema requirements. Stop
+writers and follow the existing backup/migration/check procedure before restart:
+
+```bash
+.venv/bin/python manage.py backup --file backups/tccp-before-day26a.db
+.venv/bin/python manage.py init
+.venv/bin/python manage.py check
+```
+
+No working database is automatically migrated by development verification. No new
+runtime dependencies or environment variables are required. Existing production
+secret-key, HTTPS, private SQLite storage and demo/read-only configuration still apply.
+
+```bash
+.venv/bin/python -m pytest -q tests/test_pos.py
+.venv/bin/python -m pytest -q
+.venv/bin/python -m ruff check .
+node tests/frontend_checks.mjs
+node tests/pos_frontend_checks.mjs
+PYTHONPATH=. .venv/bin/python scripts/pos_benchmark.py
+```
+
+Shortcuts: **F2** focuses product search; **Alt+C** opens the current cart. On mobile,
+the cart has a native expandable summary. Searching/paging the designer reloads saved
+settings; save before browsing another page. Favorites and pinned order are limited
+to 100 products, category pins to 50, and open held sales to 200 per store.
+
+Formal variants and modifiers are **not implemented**; their stock, purchasing,
+cost and partial-refund semantics remain deferred. Product-initial placeholders
+remain in use; image upload and hardware scanner integration are not claimed.
+Real-browser responsive/print/drag/touch review remains manual where browser tooling
+is unavailable. See [architecture and endpoint contracts](docs/DAY26A_ARCHITECTURE.md)
+and the [completion report and manual acceptance guide](docs/DAY26A_COMPLETION_REPORT.md).
+
+### Day 26B — POS workstation and unified console
+
+Checkout now uses a dedicated store toolbar, tap-to-add retail tiles, contextual
+customer/discount/note controls, a persistent charge action and a simulated-payment
+panel. Quantity selection, held sales, layout presets, Designer settings, cash-change
+quotes and uncertain-checkout recovery retain their existing server workflows.
+On mobile, **Current sale** opens the cart without scrolling through the catalog.
+
+The business console has grouped, collapsible navigation, working quick actions,
+shared management tables and coordinated customer, supplier, purchasing, expense,
+reporting, notification and settings pages. The dashboard supports Today, Last 7,
+Last 30, This month and validated custom periods. It reuses established financial
+reports: gross/net sales include tax, refunds use refund dates, purchases remain
+separate from expenses, and incomplete cost/tax data never becomes invented profit.
+Interactive date inspection and exact daily tables accompany the actual sales chart.
+
+No Day 26B migration, runtime dependency or environment variable is added. Schema
+27 remains required from Day 26A; use the existing explicit backup/init/check
+procedure for older databases. Development did not migrate or reset working data.
+Variants, modifiers and image uploads remain outside this milestone.
+
+```bash
+.venv/bin/python -m pytest -q tests/test_ui.py tests/test_pos.py tests/test_console.py
+.venv/bin/python -m pytest -q
+.venv/bin/python -m ruff check .
+.venv/bin/python -m compileall -q database services web_app.py
+node tests/frontend_checks.mjs
+node tests/pos_frontend_checks.mjs
+node tests/workspace_frontend_checks.mjs
+```
+
+See [design system](docs/DAY26B_DESIGN_SYSTEM.md) and
+[completion report](docs/DAY26B_COMPLETION_REPORT.md) for definitions, exact test
+results and manual acceptance. **Screenshot-based visual acceptance remains open:**
+Chrome interaction/layout checks were possible, but its screenshot renderer failed.
+Do not treat automated layout bounds as visual-design approval.
+
+Day 26B.1 refines checkout with icon-backed category navigation, product illustrations,
+a compact search bar, contextual quantity controls and a separately scrolling cart
+above stable totals. No backend or schema change. See
+[Day 26B.1 verification and remaining visual review](docs/DAY26B1_COMPLETION_REPORT.md).

@@ -5,6 +5,8 @@
 {% block page_heading %}Sale complete{% endblock %}
 
 {% block content %}
+{% if request.endpoint=='receipt' %}<p class="flash-message flash-success no-print" role="status">Simulated sale recorded successfully. Receipt #{{ receipt.transaction_id }} is ready to print.</p>{% endif %}
+{% if receipt.order_notes %}<section class="content-panel"><h2>Order notes</h2><p class="receipt-text">{{ receipt.order_notes }}</p></section>{% endif %}
 <section class="receipt-page">
     <div class="receipt-success">
         <span class="receipt-success-icon">✓</span>

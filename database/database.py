@@ -89,6 +89,8 @@ def initialize_database(seed=True, *, allow_missing_products=False):
             migrate_purchasing(conn)
             from database.expenses_migration import migrate_expenses
             migrate_expenses(conn)
+            from database.pos_migration import migrate_pos
+            migrate_pos(conn)
             validate_schema(conn, require_current=True)
             validate_integrity(conn, allow_missing_products=allow_missing_products)
 

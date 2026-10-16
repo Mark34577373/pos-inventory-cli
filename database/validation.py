@@ -1,6 +1,6 @@
 """Read-only checks around the existing ordered, transactional migrations."""
 
-VERSIONS = (14, 15, 16, 17, 20, 21, 22, 24, 25, 26)
+VERSIONS = (14, 15, 16, 17, 20, 21, 22, 24, 25, 26, 27)
 COLUMNS = {
     14: {
         "products": "id name price price_cents quantity is_active store_id",
@@ -112,6 +112,14 @@ TRIGGERS[25] = ("suppliers_owner_immutable", "suppliers_no_delete", "purchase_or
 COLUMNS[26] = {"expenses": "id store_id category description amount_cents expense_date supplier_id notes entry_kind reverses_id actor_user_id created_at idempotency_key request_hash"}
 INDEXES[26] = ("expenses_store_date", "expenses_store_category")
 TRIGGERS[26] = ("expense_reversal_guard", "expenses_update_immutable", "expenses_delete_immutable")
+
+COLUMNS[27] = {
+    "pos_layouts": "store_id configuration revision updated_at",
+    "held_sales": "id store_id label payload payload_hash checkout_token state claim_hash transaction_id created_at updated_at",
+    "transactions": "order_notes",
+}
+INDEXES[27] = ("held_store_state",)
+TRIGGERS[27] = ("sale_notes_immutable", "pos_owner_immutable", "held_sale_guard", "held_sale_no_delete", "held_completion_guard")
 
 # Include every ownership/numeric/audit guard, including desktop compatibility.
 TRIGGERS[14] += tuple(

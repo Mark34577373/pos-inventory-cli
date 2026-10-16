@@ -19,3 +19,5 @@ jobs:
         with:
           node-version: '20'
       - run: node tests/frontend_checks.mjs
+      - run: node tests/pos_frontend_checks.mjs
+      - run: node tests/workspace_frontend_checks.mjs

@@ -29,6 +29,7 @@ from database.database import get_store_connection as get_db_connection
 from database.database import initialize_database
 from inventory_routes import bp as inventory_blueprint
 from inventory_routes import pagination_links
+from pos_routes import bp as pos_blueprint
 from purchasing_routes import bp as purchasing_blueprint
 from refund_routes import bp as refund_blueprint
 from services.analytics import ReportLimitError, build_analytics, resolve_filters
@@ -50,7 +51,7 @@ from services.inventory_management import (
     stock_status,
     whole_number,
 )
-from services.money import calculate_tax_cents, format_cents, from_cents, parse_cash
+from services.money import format_cents, from_cents, parse_cash
 from services.refunds import get_sale
 from services.sales_totals import read_sales, summarize_sales
 from services.settings import get_settings, tax_rate
@@ -60,6 +61,7 @@ from settings_routes import bp as settings_blueprint
 
 app = Flask(__name__)
 
+app.register_blueprint(pos_blueprint)
 app.register_blueprint(business_blueprint)
 app.register_blueprint(purchasing_blueprint)
 app.register_blueprint(customers_blueprint)
@@ -97,7 +99,7 @@ if os.environ.get("TCCP_ENV") == "production":
     try:
         with closing(sqlite3.connect(Path(os.environ["TCCP_DB_PATH"]).resolve().as_uri() + "?mode=ro", uri=True)) as startup_db:
             startup_db.execute('PRAGMA foreign_keys=ON')
-            if startup_db.execute("SELECT 1 FROM schema_migrations WHERE version=26").fetchone() is None:
+            if startup_db.execute("SELECT 1 FROM schema_migrations WHERE version=27").fetchone() is None:
                 raise RuntimeError("Run the explicit database migration before production startup.")
             from database.validation import validate_integrity, validate_schema
             validate_schema(startup_db, require_current=True)
@@ -125,7 +127,7 @@ def protect_writes():
     g.store = None
     g.is_demo = False
     unsafe = request.method not in ('GET', 'HEAD', 'OPTIONS')
-    public = {'static', 'auth.login', 'auth.register', 'auth.demo', 'auth.logout'}
+    public = {'static', 'auth.login', 'auth.register', 'auth.demo', 'auth.logout', 'auth.stores'}
     if request.endpoint == 'static':
         return None
     identity = load_identity(session.get('login_token'))
@@ -154,7 +156,7 @@ def protect_writes():
     if g.store:
         context = f"{g.user['id'] if g.user else 'demo'}:{g.store['id']}"
         if session.get('cart_context') != context:
-            for key in ('sale_cart', 'sale_customer_id', 'sale_discount', 'checkout_token', 'last_receipt_id', 'last_receipt'):
+            for key in ('sale_cart', 'sale_customer_id', 'sale_discount', 'sale_notes', 'held_sale_id', 'held_claim', 'checkout_token', 'last_receipt_id', 'last_receipt'):
                 session.pop(key, None)
             session['cart_context'] = context
     if len(request.query_string) > 8192:
@@ -317,77 +319,9 @@ def read_product_form():
 
 
 def get_sale_data():
-    """Build the current sale from current database product data."""
-    saved_cart = session.get("sale_cart", {})
-    if not isinstance(saved_cart, dict):
-        saved_cart = {}
-    items = []
-    unavailable_items = []
-    subtotal_cents = 0
-
-    for raw_product_id, raw_quantity in saved_cart.items():
-        try:
-            product_id = int(raw_product_id)
-            quantity = int(raw_quantity)
-        except (TypeError, ValueError):
-            unavailable_items.append("An invalid cart entry")
-            continue
-
-        if not 0 < quantity <= 1_000_000:
-            unavailable_items.append(f"Product #{product_id}")
-            continue
-
-        product = find_product_by_id(product_id)
-        if product is None:
-            unavailable_items.append(f"Product #{product_id}")
-            continue
-
-        price_cents = product["price_cents"]
-        line_total_cents = price_cents * quantity
-        subtotal_cents += line_total_cents
-
-        items.append({
-            "product": product,
-            "quantity": quantity,
-            "price_cents": price_cents,
-            "line_total_cents": line_total_cents,
-            "available_quantity": product["quantity"],
-            "stock_ok": quantity <= product["quantity"],
-        })
-
-    from services.customers import get_customer
-    customer = None
-    if session.get('sale_customer_id') is not None:
-        try:
-            customer = get_customer(session['sale_customer_id'], active=True)
-        except LookupError:
-            unavailable_items.append('Selected customer is no longer available; choose Guest or another customer')
-    current_tax_rate = tax_rate()
-    from services.discounts import discount_amount
-    discount = session.get('sale_discount', {'kind': 'none', 'value': ''})
-    discount_cents = 0
-    try:
-        discount_cents = discount_amount([dict(price_cents=item['price_cents'], quantity=item['quantity']) for item in items], discount['kind'], discount['value'])
-    except ValueError as error:
-        unavailable_items.append(str(error))
-    tax_cents = calculate_tax_cents(subtotal_cents - discount_cents, current_tax_rate)
-    total_cents = subtotal_cents - discount_cents + tax_cents
-
-    return {
-        "discount_cents": discount_cents,
-        "discount": discount,
-        "customer": customer,
-        "items": items,
-        "unavailable_items": unavailable_items,
-        "subtotal_cents": subtotal_cents,
-        "tax_cents": tax_cents,
-        "total_cents": total_cents,
-        "tax_rate_percent": current_tax_rate * 100,
-        "has_stock_problem": (
-            bool(unavailable_items)
-            or any(not item["stock_ok"] for item in items)
-        ),
-    }
+    from services.pos_cart import price_cart
+    return dict(price_cart(session.get('sale_cart', {}), session.get('sale_customer_id'), session.get('sale_discount')),
+                order_notes=session.get('sale_notes',''))
 
 
 def parse_quantity(value):
@@ -493,8 +427,16 @@ def dashboard():
             ),
         })
 
+    from services.dashboard_presentation import dashboard_report
+    try:
+        dashboard_data = dashboard_report(request.args.to_dict())
+    except ReportLimitError as error:
+        return render_template("error.html", message=str(error)), 413
+    except ValueError as error:
+        return render_template("error.html", message=str(error)), 400
     return render_template(
         "dashboard.html",
+        **dashboard_data,
         products=products,
         tax_rate=tax_rate(),
         **summary,
@@ -652,10 +594,15 @@ def remove_product(product_id):
 @app.route("/sale")
 def sale():
     session.setdefault("checkout_token", secrets.token_urlsafe(32))
+    from services.pos_layout import get_layout
+    layout = get_layout()["config"]
+    favorite_filter = request.args.get("favorites", "")
+    if favorite_filter not in ("", "1"):
+        abort(400)
     search_term = request.args.get("q", "").strip()
     try:
         filters = inventory_filters(dict(request.args, active='active'))
-        product_data = query_inventory(filters)
+        product_data = query_inventory(filters, pos_layout=layout, favorites_only=favorite_filter=="1")
     except ValueError as error:
         abort(400, description=str(error))
     products = product_data['products']
@@ -665,14 +612,20 @@ def sale():
     except ValueError as error:
         abort(400, description=str(error))
 
+    categories = list_categories()
+    rank = {identifier:index for index,identifier in enumerate(layout['category_order'])}
+    categories.sort(key=lambda row:(rank.get(row['id'],len(rank)),row['name'].casefold(),row['id']))
+    pagination = pagination_links('sale',dict(filters,favorites=favorite_filter),product_data)
     return render_template(
         "sale.html",
         products=products,
         customer_results=customer_results,
         search_term=search_term,
-        categories=list_categories(),
+        categories=categories,
+        pos_layout=layout,
+        favorite_filter=favorite_filter,
         selected_category=request.args.get("category", ""),
-        pagination=pagination_links("sale", filters, product_data),
+        pagination=pagination,
         **get_sale_data(),
     )
 
@@ -807,6 +760,11 @@ def sale_remove(product_id):
 
 @app.route("/sale/cancel", methods=["POST"])
 def sale_cancel():
+    if session.get('held_sale_id'):
+        from services.held_sales import cancel_claim
+        cancel_claim(session['held_sale_id'],session.get('held_claim'))
+    for key in ('sale_notes','held_sale_id','held_claim'):
+        session.pop(key,None)
     session.pop("sale_discount", None)
     session.pop("sale_customer_id", None)
     session.pop("checkout_token", None)
@@ -880,6 +838,9 @@ def sale_checkout():
             customer_id=session.get("sale_customer_id"),
             discount_kind=sale_data["discount"]["kind"],
             discount_value=sale_data["discount"]["value"],
+            order_notes=session.get("sale_notes", ""),
+            held_sale_id=session.get("held_sale_id"),
+            held_claim=session.get("held_claim"),
         )
     except (ValueError, LookupError) as error:
         flash(f"Checkout could not be completed: {error}", "error")
@@ -894,6 +855,8 @@ def sale_checkout():
 
     session.pop("sale_discount", None)
     session.pop("sale_customer_id", None)
+    for key in ("sale_notes","held_sale_id","held_claim"):
+        session.pop(key,None)
     session["last_receipt_id"] = transaction_id
     session.pop("last_receipt", None)
     session.pop("checkout_token", None)

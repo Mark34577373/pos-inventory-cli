@@ -1,42 +1,44 @@
 
 {% extends "base.html" %}
+{% from "components/pos.html" import icon, category_link %}
 
-{% block title %}New Sale | TCCP{% endblock %}
-{% block page_heading %}{{ 'New sale' if ui_can_write else 'Checkout preview' }}{% endblock %}
+{% block title %}Retail checkout | TCCP{% endblock %}
+{% block page_heading %}{{ 'Retail checkout' if ui_can_write else 'Checkout preview' }}{% endblock %}
 
 {% block content %}
-<section class="sale-intro">
-    <div>
-        <div class="eyebrow content-eyebrow">POINT OF SALE</div>
-        <h2 class="welcome-title">{{ 'Create a sale' if ui_can_write else 'Browse checkout' }}</h2>
-        <p class="muted">{{ 'Select products, review the cart, and complete checkout.' if ui_can_write else 'Explore the product catalog. This workspace is read-only.' }}</p>
-    </div>
-    <a class="secondary-button" href="{{ url_for('inventory') }}">Manage inventory</a>
-</section>
-
-<div class="sale-layout">
+<nav class="pos-toolbar" aria-label="Checkout tools"><a class="pos-wordmark" href="{{ url_for('dashboard') }}"><span class="pos-brand-mark">T</span><span>TCCP</span></a><div class="pos-store-identity"><h1 class="pos-store-title">{{ g.store.name }}</h1><small>{{ {'hybrid':'Hybrid Retail','quick':'Quick Sale','custom':'Custom'}[pos_layout.preset] }} · Simulated payments</small></div><div class="pos-toolbar-actions"><button class="secondary-button" type="button" data-pos-search>{{ icon('search') }}<span>Search <kbd>F2</kbd></span></button><a class="secondary-button" href="{{ url_for('pos.held') }}">Held sales</a><details class="pos-tools-menu"><summary>Workspace <span aria-hidden="true">⌄</span></summary><div><a href="{{ url_for('pos.designer') }}">POS Layout Designer</a>{% if g.user %}<a href="{{ url_for('auth.stores') }}">Select store</a><a href="{{ url_for('auth.account') }}">Account</a>{% endif %}</div></details><a class="primary-button" href="{{ url_for('dashboard') }}">Business console →</a></div></nav>
+<div id="pos-feedback" class="pos-feedback" aria-label="Checkout feedback"></div>
+<div class="sale-layout pos-workspace pos-{{ pos_layout.preset }} density-{{ 'large' if pos_layout.preset=='quick' else pos_layout.density }} {{ 'pos-hide-images' if not pos_layout.show_images else '' }}" data-pos-workspace>
+    <a class="mobile-cart-jump primary-button" href="#pos-cart" data-open-cart>Current sale · {{ items|length }} lines · {{ total_cents|money }} ↑</a>
+    <nav class="pos-categories" aria-label="POS category shortcuts"><details open><summary>Browse categories</summary><div class="category-links">
+        <p class="category-caption">YOUR CATALOG</p>
+        {{ category_link(url_for('sale'),'All products',not selected_category and not favorite_filter,'all') }}
+        {{ category_link(url_for('sale',favorites='1'),'Favorites',favorite_filter,'favorite') }}
+        {% if pos_layout.show_categories %}<p class="category-caption">CATEGORIES</p>{% for category in categories %}{{ category_link(url_for('sale',category=category.id),category.name,selected_category|string==category.id|string) }}{% endfor %}{% endif %}
+        <a class="pos-category-item cart-category-shortcut" href="#pos-cart" data-open-cart>{{ icon('cart') }}<span>Current sale <small>Alt+C</small></span></a></div></details>
+    </nav>
     <section class="sale-products-panel">
         <div class="panel-heading">
             <div>
-                <h2>Products</h2>
-                <p class="muted">Add available inventory to this sale.</p>
+                <h2>{{ 'Favorites' if favorite_filter else 'Product catalog' }}</h2>
+                <p class="muted">Select a product to start building your sale.</p>
             </div>
             <span class="result-count">{{ products|length }} shown</span>
         </div>
 
-        <form method="get" action="{{ url_for('sale') }}" class="sale-search">
+        <form method="get" action="{{ url_for('sale') }}" class="sale-search">{% if favorite_filter %}<input type="hidden" name="favorites" value="1">{% endif %}
             <label class="sr-only" for="sale-search-input">Search products</label>
-            <input
+            <div class="pos-search-field">{{ icon('search') }}<input
                 id="sale-search-input"
                 maxlength="100"
                 type="search"
                 name="q"
                 value="{{ search_term }}"
-                placeholder="Search by product name or SKU..."
-            >
-            <label class="sr-only" for="sale-category">Category</label><select id="sale-category" name="category"><option value="">All categories</option>{% for category in categories %}<option value="{{ category.id }}" {% if selected_category|string == category.id|string %}selected{% endif %}>{{ category.name }}</option>{% endfor %}</select>
-            <button class="secondary-button" type="submit">Search / filter</button>
-            {% if search_term %}
+                placeholder="Search products or scan a SKU…"
+            ><kbd>F2</kbd></div>
+            {% if pos_layout.show_categories %}<input type="hidden" name="category" value="{{ selected_category }}">{% else %}<label class="sr-only" for="sale-category">Category</label><select id="sale-category" name="category"><option value="">All categories</option>{% for category in categories %}<option value="{{ category.id }}" {% if selected_category|string==category.id|string %}selected{% endif %}>{{ category.name }}</option>{% endfor %}</select>{% endif %}
+            <button class="secondary-button" type="submit">Find products</button>
+            {% if search_term or selected_category or favorite_filter %}
                 <a class="text-link" href="{{ url_for('sale') }}">Clear</a>
             {% endif %}
         </form>
@@ -44,57 +46,11 @@
         {% if products %}
         <div class="sale-product-list">
             {% for product in products %}
-            <article class="sale-product-card">
-                <div class="product-initial">{{ product.name[:1]|upper }}</div>
-
-                <div class="sale-product-info">
-                    <h3>{{ product.name }}</h3>
-                    <p class="muted">Product #{{ product.id }}{% if product.sku %} · SKU {{ product.sku }}{% endif %}</p>
-                    <div class="sale-product-bottom">
-                        <strong class="sale-product-price">
-                            {{ product.price_cents|money }}
-                        </strong>
-
-                        {% if product.quantity <= 0 %}
-                            <span class="stock-pill stock-out">Out of stock</span>
-                        {% elif stock_status(product) == 'low' %}
-                            <span class="stock-pill stock-low">
-                                {{ product.quantity }} left
-                            </span>
-                        {% else %}
-                            <span class="stock-pill stock-good">
-                                {{ product.quantity }} in stock
-                            </span>
-                        {% endif %}
-                    </div>
-                </div>
-
-                {% if ui_can_write %}<form method="post" action="{{ url_for('sale_add') }}" class="add-product-form">
-<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <input type="hidden" name="product_id" value="{{ product.id }}">
-                    <input type="hidden" name="return_q" value="{{ search_term }}">
-
-                    <label for="add-quantity-{{ product.id }}">Qty</label>
-                    <input
-                        id="add-quantity-{{ product.id }}"
-                        name="quantity"
-                        type="number"
-                        min="1"
-                        max="{{ product.quantity if product.quantity > 0 else 1 }}"
-                        value="1"
-                        step="1"
-                        required
-                        {% if product.quantity <= 0 %}disabled{% endif %}
-                    >
-
-                    <button
-                        type="submit"
-                        class="primary-button add-product-button"
-                        {% if product.quantity <= 0 %}disabled{% endif %}
-                    >
-                        Add
-                    </button>
-                </form>{% endif %}
+            <article class="sale-product-card pos-tile color-{{ pos_layout.colors.get(product.id|string,'blue') }}">
+                {% if product.id in pos_layout.favorites %}<span class="pos-favorite" aria-label="Favorite product">★</span>{% endif %}
+                {% if ui_can_write %}<form method="post" action="{{ url_for('sale_add') }}" class="add-product-form tile-form"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="product_id" value="{{ product.id }}"><input type="hidden" name="return_q" value="{{ search_term }}"><input type="hidden" name="quantity" value="1"><button type="submit" class="product-tap" aria-label="Add one {{ product.name }}" {% if product.quantity<=0 %}disabled{% endif %}>{% else %}<div class="product-tap">{% endif %}
+                <span class="product-initial" aria-hidden="true">{{ icon('product') }}</span><span class="sale-product-info"><strong class="tile-name">{{ product.name }}</strong><span class="tile-meta">{{ product.category_name or 'Uncategorized' }}{% if product.sku %} · {{ product.sku }}{% endif %}</span><span class="sale-product-price">{{ product.price_cents|money }}</span><span class="stock-pill stock-{{ 'out' if product.quantity<=0 else ('low' if stock_status(product)=='low' else 'good') }}">{{ 'Out of stock' if product.quantity<=0 else (product.quantity|string ~ ' left') }}</span></span>
+                {% if ui_can_write %}</button></form><details class="tile-quantity"><summary aria-label="Choose quantity for {{ product.name }}" title="Choose quantity">{{ icon('quantity') }}<span class="sr-only">Choose quantity</span></summary><form method="post" action="{{ url_for('sale_add') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="product_id" value="{{ product.id }}"><input type="hidden" name="return_q" value="{{ search_term }}"><label for="add-quantity-{{ product.id }}">Quantity · {{ product.name }}</label><input id="add-quantity-{{ product.id }}" name="quantity" type="number" min="1" max="{{ product.quantity if product.quantity>0 else 1 }}" value="1" required><button class="small-button" type="submit" {% if product.quantity<=0 %}disabled{% endif %}>Add quantity</button></form></details>{% else %}</div>{% endif %}
             </article>
             {% endfor %}
         </div>
@@ -116,16 +72,17 @@
     </section>
 
 
-    <aside class="sale-cart-panel">
+    <aside class="sale-cart-panel" id="pos-cart" tabindex="-1">
+    <details class="pos-cart-content" open><summary>Current sale · {{ items|length }} lines · {{ total_cents|money }}</summary><div class="cart-frame">
         <div class="panel-heading cart-heading">
             <div>
-                <h2>Current cart</h2>
-                <p class="muted">Review quantities before payment.</p>
+                <h2>Current sale</h2>
+                <p class="muted">{{ items|length }} lines · {{ 'Customer linked' if customer else 'Guest checkout' }}</p>
             </div>
             <span class="cart-count">{{ items|length }} item{% if items|length != 1 %}s{% endif %}</span>
         </div>
 
-        {% if unavailable_items %}
+        <div class="cart-scroll-region">{% if unavailable_items %}
         <div class="cart-warning">
             <strong>Unavailable cart entries</strong>
             <p>{{ unavailable_items|join(", ") }}</p>
@@ -134,8 +91,8 @@
         </div>
         {% endif %}
 
-        <section aria-labelledby="sale-customer-heading">
-        <h2 id="sale-customer-heading">Customer</h2>
+        <details class="cart-context" {% if request.args.get('customer_q') %}open{% endif %}><summary><span>♙ {{ customer.name if customer else 'Guest customer' }}</span><span>Change</span></summary><div class="context-body">
+        <h2 id="sale-customer-heading">Select customer</h2>
         <p>{{ customer.name if customer else 'Guest checkout' }}</p>
         <form method="get" action="{{ url_for('sale') }}">
         <label for="sale-customer-search">Find customer by name, email or phone</label>
@@ -149,7 +106,9 @@
         {% for choice in customer_results.customers %}{% if not customer or choice.id!=customer.id %}<option value="{{ choice.id }}">{{ choice.name }} · #{{ choice.id }}</option>{% endif %}{% endfor %}</select>
         <button class="secondary-button" type="submit">Apply customer</button></form>
         <p><a href="{{ url_for('customers.edit') }}">Create customer</a> · {{ customer_results.count }} matches (first 20 shown; refine search)</p>{% endif %}
-        </section>
+        </div></details>
+        {% if ui_can_write %}<details class="cart-context"><summary>Order notes {{ '· Saved' if order_notes else '· Add' }}</summary><form method="post" action="{{ url_for('pos.notes') }}" class="pos-notes-form"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><label for="sale-notes">Order notes (optional)</label><textarea id="sale-notes" name="notes" maxlength="500" rows="2">{{ order_notes }}</textarea><button class="small-button" type="submit">Save notes</button></form></details>{% endif %}
+        {% if session.get('held_sale_id') %}<p class="pos-held-banner">Resumed sale #{{ session.held_sale_id }} · prices and stock revalidated</p>{% endif %}
         {% if items %}
         <div class="cart-items">
             {% for item in items %}
@@ -192,7 +151,7 @@
                             required
                         >
                         <button class="small-button" type="submit" name="adjust" value="minus" aria-label="Decrease quantity for {{ item.product.name }}">−</button>
-                        <button class="small-button" type="submit">Update</button>
+                        <button class="small-button quantity-apply" type="submit" aria-label="Apply quantity for {{ item.product.name }}">✓</button>
                         <button class="small-button" type="submit" name="adjust" value="plus" aria-label="Increase quantity for {{ item.product.name }}">+</button>
                     </form>{% endif %}
 
@@ -201,21 +160,29 @@
                         action="{{ url_for('sale_remove', product_id=item.product.id) }}"
                     >
 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                        <button class="remove-link" type="submit">Remove</button>
+                        <button class="remove-link" type="submit" aria-label="Remove {{ item.product.name }}" title="Remove item">×<span class="sr-only">Remove</span></button>
                     </form>{% endif %}
                 </div>
             </article>
             {% endfor %}
         </div>
 
-        {% if ui_can_write %}<form method="post" action="{{ url_for('sale_discount') }}">
+        {% if ui_can_write %}<details class="cart-context"><summary>Discount {{ '· Applied' if discount_cents else '· Add' }}</summary><form method="post" action="{{ url_for('sale_discount') }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <label for="discount-kind">Before-tax discount</label>
         <select id="discount-kind" name="kind">{% for kind,label in [('none','No discount'),('fixed','Fixed amount ($)'),('percent','Percentage (%)')] %}<option value="{{ kind }}" {% if discount.kind==kind %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
         <label for="discount-value">Discount value</label><input id="discount-value" name="value" inputmode="decimal" maxlength="30" value="{{ discount.value }}">
         <p class="field-help">Discounts apply before tax. Each unit must retain at least $0.01 for refund reconciliation.</p>
-        <button class="secondary-button" type="submit">Apply discount</button></form>{% endif %}
-        <div class="cart-totals" role="status" aria-live="polite" aria-label="Authoritative cart totals">
+        <button class="secondary-button" type="submit">Apply discount</button></form></details>{% endif %}
+        {% if ui_can_write %}<details class="cart-context"><summary>Hold this sale</summary><form method="post" action="{{ url_for('pos.hold') }}" class="pos-hold-form"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><label for="hold-label">Hold sale label (optional)</label><input id="hold-label" name="label" maxlength="100" placeholder="e.g. Fictional pickup"><button class="secondary-button" type="submit">Hold sale · no stock reserved</button></form></details>{% endif %}
+        {% if ui_can_write %}<form method="post" action="{{ url_for('sale_cancel') }}"
+              data-confirm="Cancel this sale and clear the cart?">
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button class="cancel-sale-button" type="submit">Cancel sale</button>
+        </form>{% endif %}
+
+        </div>
+        <div class="checkout-dock"><div class="cart-totals" role="status" aria-live="polite" aria-label="Authoritative cart totals">
             <div>
                 <span>Subtotal</span>
                 <strong>{{ subtotal_cents|money }}</strong>
@@ -231,7 +198,7 @@
             </div>
         </div>
 
-        {% if ui_can_write %}<form method="post" action="{{ url_for('sale_checkout') }}" class="checkout-form" data-confirm="Record this simulated sale? Review the total and payment method before continuing.">
+        {% if ui_can_write %}<details class="payment-panel"><summary class="primary-button charge-action" {% if has_stock_problem %}aria-disabled="true"{% endif %}>Charge {{ total_cents|money }} →</summary><div class="payment-body"><h3>Simulated payment</h3><p>Amount due <strong>{{ total_cents|money }}</strong>. No real card details.</p><form method="post" action="{{ url_for('sale_checkout') }}" class="checkout-form" data-confirm="Record this simulated sale? Review the total and payment method before continuing.">
 <input type="hidden" name="checkout_token" value="{{ session.get('checkout_token', '') }}">
 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="form-field">
@@ -252,6 +219,8 @@
                     step="0.01"
                     placeholder="Enter amount received"
                 >
+                <button type="button" class="secondary-button" data-cash-preview>Preview cash change</button>
+                <p id="cash-change-preview" role="status" aria-live="polite"></p>
                 <span class="field-help">
                     Must be at least {{ total_cents|money }}.
                 </span>
@@ -274,23 +243,17 @@
             >
                 Complete sale · {{ total_cents|money }}
             </button>
-        </form>{% endif %}
-
-        {% if ui_can_write %}<form method="post" action="{{ url_for('sale_cancel') }}"
-              data-confirm="Cancel this sale and clear the cart?">
-<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <button class="cancel-sale-button" type="submit">Cancel sale</button>
-        </form>{% endif %}
+        </form></div></details>{% endif %}</div>
 
         {% else %}
         <div class="empty-cart">
-            <div class="empty-cart-icon">＋</div>
+            <div class="empty-cart-icon">{{ icon('cart') }}</div>
             <h3>{{ 'Your cart is empty' if ui_can_write else 'Read-only checkout preview' }}</h3>
             <p class="muted">{{ 'Add a product from the list to begin a sale.' if ui_can_write else 'Browse fictional products here. Sign in to a writable private store to create a cart and record simulated sales.' }}</p>
         </div>
-        {% endif %}
-    </aside>
+        </div>{% endif %}
+    </div></details></aside>
 </div>
 {% endblock %}
 
-{% block scripts %}<script src="{{ url_for('static', filename='js/checkout.js') }}" defer></script>{% endblock %}
+{% block scripts %}<script src="{{ url_for('static',filename='js/pos.js') }}" defer></script><script src="{{ url_for('static', filename='js/checkout.js') }}" defer></script>{% endblock %}

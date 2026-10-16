@@ -1,6 +1,9 @@
 {% extends 'base.html' %}
+{% block title %}Supplier profile | TCCP{% endblock %}
+{% from 'components/ui.html' import page_header with context %}
 {% block page_heading %}Supplier profile{% endblock %}
 {% block content %}
+{{ page_header('PURCHASING','Supplier profile','Contact details, associated products and purchasing activity.') }}
 <section class="content-panel"><h2>{{ supplier.name }}</h2><p>{{ 'Active' if supplier.is_active else 'Inactive' }} · {{ supplier.contact }} · {{ supplier.email }} · {{ supplier.phone }}</p><p>{{ supplier.address }}</p><p>{{ supplier.notes }}</p>
 {% if ui_can_write %}<a href="{{ url_for('purchasing.supplier_edit',supplier_id=supplier.id) }}">Edit supplier</a>{% if supplier.is_active %}<form method="post" action="{{ url_for('purchasing.order_new') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="supplier_id" value="{{ supplier.id }}"><button class="primary-button" type="submit">Create purchase order</button></form><form method="post" action="{{ url_for('purchasing.supplier_deactivate',supplier_id=supplier.id) }}" data-confirm="Deactivate this supplier? Existing orders and receiving history will remain."><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="secondary-button" type="submit">Deactivate supplier</button></form>{% endif %}{% endif %}
 <p>Ordered (excluding drafts/cancellations): {{ totals.ordered_cents|money }} · Received: {{ totals.received_cents|money }}. These values do not imply supplier payments.</p>

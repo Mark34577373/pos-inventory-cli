@@ -5,6 +5,7 @@
 {% block page_heading %}Transaction details{% endblock %}
 
 {% block content %}
+{% if transaction.order_notes %}<section class="content-panel"><h2>Order notes</h2><p class="receipt-text">{{ transaction.order_notes }}</p></section>{% endif %}
 {% if transaction.discount_cents %}<p>Before-tax discount: {{ transaction.discount_cents|money }} · {{ transaction.discount_kind|title }} {{ transaction.discount_value }}</p>{% endif %}
 {% if transaction.customer_id %}<p>Customer at sale: <a href="{{ url_for('customers.detail',customer_id=transaction.customer_id) }}">{{ transaction.customer_name_snapshot }}</a></p>{% endif %}
 <div class="breadcrumb">

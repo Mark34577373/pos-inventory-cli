@@ -1,8 +1,10 @@
 {% extends 'base.html' %}
+{% from 'components/ui.html' import page_header with context %}
 {% block title %}Notifications | TCCP{% endblock %}
 {% block page_heading %}Notification center{% endblock %}
 {% from 'components/notifications.html' import actions with context %}
 {% block content %}
+{{ page_header('WORKSPACE','Notification center','Review stock changes, resolve issues and keep your store moving.') }}
 <section class="page-intro"><div><h2>Inventory attention, in one place</h2><p class="muted">{{ total }} matching notifications · {{ notifications.unread if notifications else 0 }} unread. Conditions are updated atomically with inventory changes.</p></div><a class="secondary-button" href="{{ url_for('settings.overview',_anchor='inventory') }}">Manage stock thresholds</a></section>
 <section class="content-panel"><form method="get" action="{{ url_for('alerts.overview') }}" class="inventory-filters">
 {% for key,label,choices in [('kind','Alert type',[('','All types'),('low','Low stock'),('out','Out of stock'),('restored','Stock restored')]),('severity','Severity',[('','All severities'),('info','Informational'),('warning','Warning'),('critical','Critical')]),('read','Read status',[('','All notifications'),('unread','Unread'),('read','Read')]),('state','Condition status',[('','All history'),('active','Active and not dismissed'),('resolved','Resolved'),('dismissed','Dismissed')]),('sort','Sort',[('newest','Newest first'),('oldest','Oldest first')])] %}<div class="form-field"><label for="notification-{{ key }}">{{ label }}</label><select id="notification-{{ key }}" name="{{ key }}">{% for value,text in choices %}<option value="{{ value }}"{% if filters[key]==value %} selected{% endif %}>{{ text }}</option>{% endfor %}</select></div>{% endfor %}

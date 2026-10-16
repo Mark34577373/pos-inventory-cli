@@ -314,6 +314,11 @@ class BusinessFinancialTests(unittest.TestCase):
         from database.expenses_migration import migrate_expenses
 
         with closing(db.get_db_connection()) as conn, conn:
+            conn.execute("DROP TABLE held_sales")
+            conn.execute("DROP TABLE pos_layouts")
+            conn.execute("DROP TRIGGER sale_notes_immutable")
+            conn.execute("ALTER TABLE transactions DROP COLUMN order_notes")
+            conn.execute("DELETE FROM schema_migrations WHERE version=27")
             conn.execute("DROP TABLE expenses")  # Disposable fixture; no expense rows exist.
             conn.execute("DELETE FROM schema_migrations WHERE version=26")
         before = self.query("SELECT * FROM customers")

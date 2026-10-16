@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% from 'components/ui.html' import page_header with context %}
 {% block title %}Business settings | TCCP{% endblock %}
 {% block page_heading %}Business settings{% endblock %}
 {% macro start(section, title, description) %}
@@ -13,6 +14,7 @@
 {% endmacro %}
 {% macro finish() %}{% if ui_can_write %}<button type="submit" class="primary-button">Save changes</button>{% endif %}</fieldset>{% if ui_can_write %}</form>{% else %}</div>{% endif %}</section>{% endmacro %}
 {% block content %}
+{{ page_header('WORKSPACE','Make TCCP yours','Manage store identity, checkout preferences and historical receipt branding.') }}
 <nav class="settings-nav" aria-label="Settings sections">{% for id,title in [('business','Business profile'),('tax','Tax & checkout'),('receipt','Receipts'),('inventory','Inventory'),('analytics','Dashboard & analytics'),('security','Account & security')] %}<a href="#{{ id }}">{{ title }}</a>{% endfor %}</nav>
 <p>Preferences belong to this store. Currency is USD. Business timezone is {{ business_timezone }}; changing historical timezone or currency is not supported.</p>
 {% if not ui_can_write %}<p role="status">Settings are read-only in this demonstration or deployment.</p>{% endif %}

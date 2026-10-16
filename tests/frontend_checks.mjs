@@ -180,6 +180,37 @@ export async function runChecks() {
             assert.equal(form.beforeNodes[0].attrs.role,'alert');
             assert.match(form.beforeNodes[0].textContent,/verify the cart or transaction history/);
         });
+        await check('Cash preview displays server-formatted change and clears stale tender results', async () => {
+            const env=await checkoutEnvironment(); const form=new Element(); const button=new Element();
+            env.ids['cash-change-preview']=new Element(); button.closest=selector=>selector==='[data-cash-preview]'?button:selector==='form'?form:null;
+            globalThis.FormData=class {get(){return 'fictional_csrf';}};
+            globalThis.fetch=async(url,options)=>{assert.equal(url,'/api/pos/cash-quote');assert.equal(options.body.get('cash_received'),'5.00');return {ok:true,json:async()=>({context:'owner:store',total_text:'$2.71',change_text:'$2.29'})};};
+            await env.document.fire('click',{target:button});assert.match(env.ids['cash-change-preview'].textContent,/Current total \$2.71 · Change due \$2.29/);assert.equal(button.disabled,false);
+            env.ids['cash-received'].value='10.00';await env.document.fire('input',{target:env.ids['cash-received']});assert.equal(env.ids['cash-change-preview'].textContent,'');
+        });
+        await check('Uncertain checkout blocks repeats and resolves the recorded receipt by its original token', async () => {
+            const env=await checkoutEnvironment(); const form=new Element(); form.cartForm=true; form.action='http://localhost/sale/checkout'; form.buttons=[new Element()];
+            const stored=new Map(); env.window.sessionStorage={setItem:(key,value)=>stored.set(key,value),getItem:key=>stored.get(key),removeItem:key=>stored.delete(key)};
+            globalThis.FormData=class {get(name){return name==='checkout_token'?'fictional_checkout_token_123':'fictional_csrf';} };
+            let calls=0; globalThis.fetch=async()=>{calls++; throw new Error('Uncertain network result');};
+            await env.document.fire('submit',submit(form));
+            assert.equal(form.buttons[0].disabled,true); assert.equal(stored.size,1);
+            const duplicate=submit(form); await env.document.fire('submit',duplicate); assert.equal(duplicate.defaultPrevented,true); assert.equal(calls,1);
+            env.window.location.assign=value=>{env.window.redirect=value;};
+            globalThis.fetch=async(url,options)=>{assert.equal(url,'/api/pos/checkout-status'); assert.equal(options.body.get('checkout_token'),'fictional_checkout_token_123'); return {ok:true,json:async()=>({state:'completed',context:'owner:store',receipt_url:'/transactions/7/receipt'})};};
+            await form.beforeNodes[1].fire('click');
+            assert.equal(env.window.redirect,'/transactions/7/receipt'); assert.equal(stored.size,0);
+        });
+        await check('Status failure stays blocked; authoritative not-found permits only the original checkout retry', async () => {
+            const env=await checkoutEnvironment(); const form=new Element(); form.cartForm=true; form.action='http://localhost/sale/checkout'; form.buttons=[new Element()];
+            globalThis.FormData=class {get(name){return name==='checkout_token'?'fictional_original_token_123':'fictional_csrf';} };
+            globalThis.fetch=async()=>{throw new Error('Timeout');}; await env.document.fire('submit',submit(form));
+            const status=form.beforeNodes[1]; globalThis.fetch=async()=>({ok:false}); await status.fire('click'); assert.equal(form.buttons[0].disabled,true);
+            assert.match(form.beforeNodes[0].textContent,/still uncertain/);
+            globalThis.fetch=async()=>({ok:true,json:async()=>({state:'not_found',context:'owner:store',retry:'same_token_only'})});
+            await status.fire('click'); assert.equal(form.buttons[0].disabled,false); assert.equal(status.hidden,true);
+            assert.match(form.beforeNodes[0].textContent,/original checkout confirmation/);
+        });
         await check('Cart updates use returned server totals, retain tender and restore focus', async () => {
             const env=await checkoutEnvironment(); const form=new Element(); form.cartForm=true; form.action='http://localhost/sale/update/1'; form.buttons=[new Element()];
             const layout=new Element();
@@ -226,6 +257,25 @@ export async function runChecks() {
             assert.equal(count,1);
             assert.equal(form.attrs['aria-busy'],'true');
             assert.equal(button.disabled,true);
+        });
+        await check('Delayed dialog close events cannot block or duplicate explicit confirmation', async () => {
+            const env=await setup({modal:true}); const form=new Element();
+            form.dataset.confirm='Record simulated sale?'; let count=0;
+            form.requestSubmit=()=>{count++;};
+            const dialog=env.ids['confirmation-dialog'];
+            dialog.close=value=>{dialog.returnValue=value;dialog.open=false;};
+            await env.document.fire('submit',submit(form));
+            await env.ids['confirmation-accept'].fire('click');
+            assert.equal(count,1);
+            await dialog.fire('close');
+            assert.equal(count,1);
+            await env.document.fire('submit',submit(form));
+            await dialog.fire('close'); // A previous close must not settle the new open dialog.
+            await env.ids['confirmation-accept'].fire('click');
+            assert.equal(count,2);
+            await env.document.fire('submit',submit(form));
+            await env.ids['confirmation-cancel'].fire('click');
+            assert.equal(count,2);
         });
         await check('Browsers without dialog support retain native confirmation fallback', async () => {
             const env=await setup(); const form=new Element(); form.dataset.confirm='Remove category?';

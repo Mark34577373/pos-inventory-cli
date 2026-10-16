@@ -176,7 +176,7 @@ def inventory_filters(args):
     return filters
 
 
-def query_inventory(filters):
+def query_inventory(filters, *, pos_layout=None, favorites_only=False):
     filters = inventory_filters(filters)
     clauses = ["p.store_id=authorized_store_id()"]
     params = []
@@ -203,6 +203,19 @@ def query_inventory(filters):
     }
     if filters["status"]:
         clauses.append("(" + statuses[filters["status"]] + ")")
+    order_prefix = ""
+    order_params = []
+    if pos_layout is not None:
+        from services.pos_layout import validate_layout
+        with closing(get_store_connection()) as check_conn:
+            validate_layout(pos_layout, check_conn)
+        ids = pos_layout['favorites'] if favorites_only else pos_layout['product_order'] if pos_layout['preset']=='custom' else pos_layout['favorites'] if pos_layout['preset']=='quick' else []
+        if favorites_only:
+            clauses.append("p.id IN (" + ",".join("?" for _ in ids) + ")" if ids else "0")
+            params.extend(ids)
+        if ids:
+            order_prefix = "CASE p.id " + " ".join(f"WHEN ? THEN {index}" for index, _ in enumerate(ids)) + f" ELSE {len(ids)} END, "
+            order_params = ids
     where = " AND ".join(clauses)
     with closing(get_store_connection()) as conn:
         totals = dict(
@@ -220,8 +233,8 @@ def query_inventory(filters):
         rows = conn.execute(
             f"""SELECT p.*,c.name AS category_name FROM products p
             LEFT JOIN categories c ON c.id=p.category_id AND c.store_id=p.store_id
-            WHERE {where} ORDER BY {SORTS[filters["sort"]]} {filters["direction"]}, p.id {filters["direction"]} LIMIT ? OFFSET ?""",
-            [*params, PAGE_SIZE, (page - 1) * PAGE_SIZE],
+            WHERE {where} ORDER BY {order_prefix}{SORTS[filters["sort"]]} {filters["direction"]}, p.id {filters["direction"]} LIMIT ? OFFSET ?""",
+            [*params, *order_params, PAGE_SIZE, (page - 1) * PAGE_SIZE],
         ).fetchall()
     return {"products": [dict(row) for row in rows], "page": page, "pages": pages, **totals}
 

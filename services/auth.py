@@ -84,14 +84,16 @@ def revoke_session(token):
                 conn.execute("DELETE FROM auth_sessions WHERE token_hash=?", (digest_token(token),))
 
 
-def create_login_session(user_id):
+def create_login_session(user_id, *, store_id=None):
+    if store_id is not None and (type(store_id) is not int or not 0<store_id<=9223372036854775807):
+        raise ValueError("Choose an authorized store.")
     token = secrets.token_urlsafe(32)
     now = int(time.time())
     with closing(get_db_connection()) as conn:
         with conn:
             membership = conn.execute(
-                "SELECT m.store_id FROM store_memberships m JOIN stores s ON s.id=m.store_id WHERE m.user_id=? AND s.kind!='demo' ORDER BY m.store_id LIMIT 1",
-                (user_id,),
+                "SELECT m.store_id FROM store_memberships m JOIN stores s ON s.id=m.store_id WHERE m.user_id=? AND s.kind!='demo' AND (? IS NULL OR m.store_id=?) ORDER BY m.store_id LIMIT 1",
+                (user_id,store_id,store_id),
             ).fetchone()
             if membership is None:
                 raise ValueError("No authorized store is available.")

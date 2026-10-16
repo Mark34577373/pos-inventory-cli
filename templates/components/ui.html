@@ -1,5 +1,23 @@
+{% macro workspace_icon(endpoint) -%}
+{% set paths={
+'dashboard':'M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z',
+'inventory':'M3 7l9-4 9 4v10l-9 4-9-4z M3 7l9 4 9-4 M12 11v10',
+'sale':'M4 4h2l3 12h10l2-8H7 M10 20h1 M18 20h1',
+'transactions':'M6 3h12v18l-3-2-3 2-3-2-3 2z M9 8h6 M9 12h6',
+'customers.directory':'M16 21v-3a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v3 M9 3a4 4 0 1 0 0 8 4 4 0 0 0 0-8 M17 4a4 4 0 0 1 0 8 M22 21v-3a4 4 0 0 0-3-4',
+'purchasing.orders':'M6 4h12v17H6z M9 2h6v5H9z M9 11h6 M9 15h6',
+'purchasing.directory':'M2 7h12v12H2z M14 11h4l4 4v4h-6 M5 21h1 M17 21h1',
+'business.expenses':'M3 6h18v14H3z M3 10h18 M15 15h3',
+'business.financials':'M4 21V3 M4 21h17 M8 17v-5 M13 17V8 M18 17V4',
+'analytics.overview':'M3 20h18 M5 16l5-5 4 2 6-9',
+'reports':'M6 3h9l4 4v14H6z M14 3v5h5 M9 12h7 M9 16h7',
+'alerts.overview':'M5 17h14l-2-3V9a5 5 0 0 0-10 0v5z M10 21h4',
+'pos.designer':'M3 3h18v18H3z M3 9h18 M15 9v12',
+'settings.overview':'M4 7h16 M4 17h16 M8 4v6 M16 14v6'
+} %}<svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="{{ paths.get(endpoint,'M5 12h14 M13 6l6 6-6 6') }}"/></svg>
+{%- endmacro %}
 {% macro nav_item(endpoint, label, icon, active=false) -%}
-<a class="nav-link{% if active %} active{% endif %}" href="{{ url_for(endpoint) }}"{% if active %} aria-current="page"{% endif %}><span class="nav-icon" aria-hidden="true">{{ icon }}</span><span>{{ label }}</span></a>
+<a class="nav-link{% if active %} active{% endif %}" href="{{ url_for(endpoint) }}"{% if active %} aria-current="page"{% endif %}>{{ workspace_icon(endpoint) }}<span>{{ label }}</span></a>
 {%- endmacro %}
 
 {% macro empty_state(title, message, href='', action='') -%}
@@ -8,4 +26,12 @@
 
 {% macro error_summary(message) -%}
 {% if message %}<div class="flash-message flash-error error-summary" role="alert" tabindex="-1"><strong>Please review your request</strong><p>{{ message }}</p></div>{% endif %}
+{%- endmacro %}
+
+{% macro kpi(label, value, note, icon='↗') -%}
+<article class="stat-card"><div class="stat-card-top"><span class="stat-label">{{ label }}</span><span class="stat-icon icon-blue" aria-hidden="true">{{ icon }}</span></div><strong class="stat-value">{{ value }}</strong><small class="stat-note">{{ note }}</small></article>
+{%- endmacro %}
+
+{% macro page_header(eyebrow, title, description) -%}
+<section class="page-intro module-intro"><div><p class="eyebrow">{{ eyebrow }}</p><h2 class="welcome-title">{{ title }}</h2><p class="muted">{{ description }}</p></div><span class="workspace-badge">{{ g.store.name }}</span></section>
 {%- endmacro %}

@@ -78,15 +78,19 @@
         dialog.showModal();
     }, true);
     if (dialog) {
-        document.getElementById('confirmation-cancel').addEventListener('click', () => dialog.close('cancel'));
-        document.getElementById('confirmation-accept').addEventListener('click', () => dialog.close('confirm'));
-        dialog.addEventListener('close', () => {
+        const settle = result => {
             const request = pendingConfirmation;
             pendingConfirmation = null;
             if (!request) return;
             request.focus?.focus();
-            if (dialog.returnValue === 'confirm') resume(request);
-        });
+            if (result === 'confirm') resume(request);
+        };
+        // Explicit actions must not wait for a renderer-scheduled close event.
+        const close = result => { dialog.close(result); settle(result); };
+        document.getElementById('confirmation-cancel').addEventListener('click', () => close('cancel'));
+        document.getElementById('confirmation-accept').addEventListener('click', () => close('confirm'));
+        dialog.addEventListener('cancel', event => { event.preventDefault(); close('cancel'); });
+        dialog.addEventListener('close', () => { if (!dialog.open) settle(dialog.returnValue); });
     }
     document.addEventListener('submit', event => {
         const form = event.target;

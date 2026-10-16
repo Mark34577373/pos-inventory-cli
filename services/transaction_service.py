@@ -8,9 +8,12 @@ from services.money import calculate_tax_cents, from_cents, to_cents
 from services.settings import get_settings, receipt_snapshot
 
 
-def complete_transaction(cart_items, total_amount, payment_method, *, checkout_token=None, cash_received_cents=None, customer_id=None, discount_kind="none", discount_value=""):
+def complete_transaction(cart_items, total_amount, payment_method, *, checkout_token=None, cash_received_cents=None, customer_id=None, discount_kind="none", discount_value="", order_notes="", held_sale_id=None, held_claim=None):
     """Validate and persist a complete sale atomically using integer cents."""
     require_store_write()
+    from services.held_sales import finish_claim, verify_claim
+    from services.pos_cart import order_notes as validate_notes
+    order_notes = validate_notes(order_notes)
     payment_method = (
         payment_method.strip().title()
         if isinstance(payment_method, str)
@@ -32,6 +35,7 @@ def complete_transaction(cart_items, total_amount, payment_method, *, checkout_t
                 prior = cursor.execute("SELECT id FROM transactions WHERE store_id=authorized_store_id() AND checkout_token=?", (checkout_token,)).fetchone()
                 if prior:
                     return prior["id"]
+            held_sale_id = verify_claim(conn, checkout_token, held_sale_id, held_claim)
             from services.customers import get_customer
             customer = get_customer(customer_id, conn, active=True) if customer_id is not None else None
             settings = get_settings(conn)
@@ -84,9 +88,9 @@ def complete_transaction(cart_items, total_amount, payment_method, *, checkout_t
             timestamp = business_now().strftime("%Y-%m-%d %H:%M:%S")
             cursor.execute(
                 "INSERT INTO transactions "
-                "(timestamp, total, total_cents, payment_method, checkout_token, cash_received_cents, tax_rate_percent, receipt_snapshot, customer_id, customer_name_snapshot, discount_cents, discount_kind, discount_value, store_id) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, authorized_store_id())",
-                (timestamp, float(from_cents(total_cents)), total_cents, payment_method, checkout_token, cash_received_cents, str(settings['tax_percent']), receipt_snapshot(settings), customer_id, customer["name"] if customer else None, discount_cents, discount_kind, discount_value),
+                "(timestamp, total, total_cents, payment_method, checkout_token, cash_received_cents, tax_rate_percent, receipt_snapshot, customer_id, customer_name_snapshot, discount_cents, discount_kind, discount_value, order_notes, store_id) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, authorized_store_id())",
+                (timestamp, float(from_cents(total_cents)), total_cents, payment_method, checkout_token, cash_received_cents, str(settings['tax_percent']), receipt_snapshot(settings), customer_id, customer["name"] if customer else None, discount_cents, discount_kind, discount_value, order_notes),
             )
             transaction_id = cursor.lastrowid
 
@@ -117,6 +121,7 @@ def complete_transaction(cart_items, total_amount, payment_method, *, checkout_t
                         unit_cost,
                     ),
                 )
+            finish_claim(conn, held_sale_id, transaction_id)
     finally:
         conn.close()
 

@@ -468,6 +468,6 @@ assert 'max-age=' in client.get('/login',base_url='https://good.example').header
         before = self.query("SELECT * FROM products")
         for _ in range(2):
             with closing(db.get_db_connection()) as conn:
-                self.assertEqual(validate_schema(conn, require_current=True), (14, 15, 16, 17, 20, 21, 22, 24, 25, 26))
+                self.assertEqual(validate_schema(conn, require_current=True), (14, 15, 16, 17, 20, 21, 22, 24, 25, 26, 27))
                 validate_integrity(conn)
         self.assertEqual(before, self.query("SELECT * FROM products"))
