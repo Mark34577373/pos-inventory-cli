@@ -105,14 +105,22 @@ def seed_demo(allow_existing=False):
             if conn.execute("SELECT 1 FROM stores WHERE kind='demo'").fetchone():
                 raise ValueError('A public demo store already exists.')
             store = conn.execute("INSERT INTO stores(name,kind) VALUES ('TCCP Fictional Demo','demo')").lastrowid
+            customer = conn.execute(
+                'INSERT INTO customers(store_id,name,email,notes) VALUES (?,?,?,?)',
+                (store, 'Alex Example (Fictional)', 'alex@example.invalid', 'Fictional portfolio demonstration only.'),
+            ).lastrowid
+            conn.execute(
+                'INSERT INTO suppliers(store_id,name,email,notes) VALUES (?,?,?,?)',
+                (store, 'Example Office Supply (Fictional)', 'supply@example.invalid', 'Fictional portfolio demonstration only.'),
+            )
             ids = []
             for name, cents, quantity in (('Demo Notebook',425,50), ('Demo USB Cable',750,30), ('Demo Desk Lamp',2499,3), ('Demo Keyboard',2999,0)):
                 ids.append(conn.execute('INSERT INTO products(name,price,price_cents,quantity,store_id) VALUES (?,?,?,?,?)',
                                         (name,float(from_cents(cents)),cents,quantity,store)).lastrowid)
             for offset in (6,5,3,2,1,0):
                 total = 1175 + calculate_tax_cents(1175,TAX_RATE)
-                tx = conn.execute('INSERT INTO transactions(timestamp,total,total_cents,payment_method,cash_received_cents,tax_rate_percent,store_id) VALUES (?,?,?,?,?,?,?)',
-                                  ((business_now()-timedelta(days=offset)).strftime('%Y-%m-%d 12:00:00'),float(from_cents(total)),total,'Card' if offset%2 else 'Cash',None if offset%2 else 2000,str(TAX_RATE*100),store)).lastrowid
+                tx = conn.execute('INSERT INTO transactions(timestamp,total,total_cents,payment_method,cash_received_cents,tax_rate_percent,store_id,customer_id,customer_name_snapshot) VALUES (?,?,?,?,?,?,?,?,?)',
+                                  ((business_now()-timedelta(days=offset)).strftime('%Y-%m-%d 12:00:00'),float(from_cents(total)),total,'Card' if offset%2 else 'Cash',None if offset%2 else 2000,str(TAX_RATE*100),store,customer,'Alex Example (Fictional)')).lastrowid
                 for product, name, cents in ((ids[0],'Demo Notebook',425),(ids[1],'Demo USB Cable',750)):
                     conn.execute('INSERT INTO transaction_items(transaction_id,product_id,quantity,price,price_cents,product_name,store_id) VALUES (?,?,1,?,?,?,?)',
                                  (tx,product,float(from_cents(cents)),cents,name,store))

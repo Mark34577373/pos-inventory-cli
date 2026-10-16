@@ -413,3 +413,15 @@ Read the [security audit](docs/DAY27_SECURITY_AUDIT.md),
 [release assessment](docs/DAY27_COMPLETION_REPORT.md).
 This is a conditional fictional-data demo release candidate, not real-payment or
 commercial-operation approval. No deployment was performed.
+
+### Day 28A: deployment preparation
+
+The [deployment preparation guide](docs/DAY28_DEPLOYMENT_PREPARATION.md) covers
+production environment settings, persistent SQLite storage, explicit initialization,
+migrations, backup/restore and local verification. New fictional demo databases now
+include a customer and supplier alongside products and simulated sales. Existing
+databases are not reseeded. Run `pytest -q tests/test_deployment.py` for the isolated
+production WSGI rehearsal, including a temporary local Gunicorn listener.
+
+Public hosting remains unselected and undeployed. Session 28B requires approval of
+the provider, pricing, target and launch before any public deployment.
