@@ -38,15 +38,16 @@
 .pos-workspace .sale-search { display:grid; grid-template-columns:minmax(0,1fr) auto auto; align-items:center; gap:8px; margin-bottom:20px; }
 .pos-workspace .sale-search input { width:100%; }
 .pos-workspace .sale-product-list { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,var(--pos-tile-min,170px)),1fr)); align-content:start; gap:14px; }
-.pos-workspace .pos-tile { padding:0; border:1px solid var(--border); border-top:3px solid var(--tile-color); border-radius:12px; overflow:hidden; background:var(--surface); gap:0; box-shadow:var(--shadow-card); max-width:280px; align-self:start; }
+/* Replace the legacy card's 42px icon column: the tile content is one full-width stack. */
+.pos-workspace .pos-tile { grid-template-columns:minmax(0,1fr); min-width:0; padding:0; border:1px solid var(--border); border-top:3px solid var(--tile-color); border-radius:12px; overflow:hidden; background:var(--surface); gap:0; box-shadow:var(--shadow-card); max-width:280px; align-self:start; }
 .pos-workspace .add-product-form.tile-form { display:block; margin:0; width:100%; }
 .product-tap { display:flex; flex-direction:column; gap:0; width:100%; height:100%; border:0; background:transparent; padding:0; text-align:left; font:inherit; color:var(--text-primary); cursor:pointer; }
 .product-tap:hover:not(:disabled) { background:var(--blue-soft); }
 .product-tap:active:not(:disabled) { transform:translateY(1px); }
 .pos-workspace .tile-form .product-tap { padding:0; }
 .pos-workspace .product-initial { display:flex; align-items:center; justify-content:center; height:124px; width:100%; border-radius:0; font-size:2.5rem; color:var(--tile-color); background:radial-gradient(ellipse at 50% 80%,#d9e4f3 0,transparent 60%),linear-gradient(145deg,#f8fafd,#eaf0f8); }
-.pos-workspace .sale-product-info { display:flex; flex-direction:column; gap:6px; padding:12px; }
-.tile-name { font-size:.92rem; line-height:1.35; min-height:2.7em; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+.pos-workspace .sale-product-info { display:flex; flex-direction:column; width:100%; min-width:0; gap:6px; padding:12px; }
+.tile-name { font-size:.92rem; line-height:1.35; min-height:2.7em; overflow-wrap:anywhere; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
 .tile-meta { font-size:.65rem; color:var(--text-secondary); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:100%; }
 .pos-workspace .sale-product-price { font-size:1.1rem; }
 .pos-workspace .stock-pill { align-self:start; font-size:.65rem; }
