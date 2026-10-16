@@ -1,11 +1,15 @@
 """Disposable Render bootstrap and production import regression checks."""
+import http.client
 import os
 import secrets
+import socket
 import sqlite3
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
+from contextlib import closing
 from pathlib import Path
 
 
@@ -161,3 +165,115 @@ with closing(db.get_db_connection()) as conn:
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('Refusing non-demo', result.stdout)
         self.assertEqual(self.path.read_bytes(), before)
+
+    def test_startup_stage_logs_are_flushed_and_restart_skips_work(self):
+        result = self.run_command('manage.py', 'prepare-render-demo')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for stage in ('validating demo configuration', 'bootstrap lock acquired',
+                      'schema initialization complete', 'fictional demo seed complete',
+                      'ready; bootstrap lock released; exiting successfully'):
+            self.assertIn(stage, result.stdout)
+        self.assertNotIn(self.env['TCCP_SECRET_KEY'], result.stdout + result.stderr)
+        result = self.run_command('manage.py', 'prepare-render-demo')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('migrations skipped', result.stdout)
+        self.assertIn('seeding skipped', result.stdout)
+
+    def test_bootstrap_lock_contention_times_out_without_database_changes(self):
+        import fcntl
+
+        self.prepare()
+        before = self.path.read_bytes()
+        with open(self.path.parent / '.bootstrap.lock', 'a') as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            result = self.run_command('-c', '''
+from manage import prepare_render_demo
+try:
+ prepare_render_demo(lock_timeout=0.15)
+except TimeoutError:
+ raise SystemExit(1)
+''')
+        self.assertEqual(result.returncode, 1)
+        self.assertIn('waiting for bootstrap lock', result.stdout)
+        self.assertNotIn('bootstrap lock acquired', result.stdout)
+        self.assertEqual(self.path.read_bytes(), before)
+
+    def test_locked_backup_has_deadline_and_preserves_source(self):
+        self.prepare()
+        before = self.path.read_bytes()
+        backup = self.path.parent / 'contended.backup'
+        with closing(sqlite3.connect(self.path)) as conn:
+            conn.execute('BEGIN EXCLUSIVE')
+            try:
+                result = self.run_command('-c', '''
+from manage import backup_database
+import os
+from pathlib import Path
+try:
+ backup_database(Path(os.environ['TCCP_DB_PATH']).with_name('contended.backup'), timeout=0.15)
+except TimeoutError:
+ raise SystemExit(1)
+''')
+            finally:
+                conn.rollback()
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(self.path.read_bytes(), before)
+        self.assertTrue(backup.exists())  # Retain incomplete evidence; never replace the source.
+
+    def test_explicit_wsgi_target_is_required(self):
+        self.prepare()
+        result = self.run_command('-m', 'gunicorn', '--check-config', 'web_app')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('application', result.stderr)
+        result = self.run_command('-m', 'gunicorn', '--check-config', 'web_app:app')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('application ready', result.stderr)
+
+    def test_render_shell_command_binds_assigned_port_and_passes_health_check(self):
+        with socket.socket() as probe:
+            probe.bind(('127.0.0.1', 0))
+            port = probe.getsockname()[1]
+        env = dict(self.env, PORT=str(port), TCCP_TEST_PYTHON=sys.executable)
+        command = ('"$TCCP_TEST_PYTHON" -u manage.py prepare-render-demo && '
+                   'exec "$TCCP_TEST_PYTHON" -m gunicorn --bind 0.0.0.0:$PORT '
+                   '--workers 1 --threads 2 --timeout 60 --error-logfile - web_app:app')
+        started = time.monotonic()
+        with tempfile.TemporaryFile(mode='w+') as log:
+            process = subprocess.Popen(['/bin/sh', '-c', command], env=env, stdout=log, stderr=log)
+            try:
+                response_status = None
+                while time.monotonic() - started < 20 and process.poll() is None:
+                    try:
+                        with closing(http.client.HTTPConnection('127.0.0.1', port, timeout=2)) as client:
+                            client.request('GET', '/login', headers={'Host':'localhost', 'Connection':'close'})
+                            response = client.getresponse()
+                            response_status = response.status
+                            response.read()
+                        if response_status == 200:
+                            break
+                    except (OSError, http.client.HTTPException):
+                        pass
+                    time.sleep(0.05)
+                ready = time.monotonic() - started
+                log.seek(0)
+                self.assertEqual(response_status, 200, log.read())
+                for path, host, expected in (('/login','wrong.invalid',400), ('/health','localhost',404)):
+                    with closing(http.client.HTTPConnection('127.0.0.1', port, timeout=3)) as client:
+                        client.request('GET', path, headers={'Host':host, 'Connection':'close'})
+                        response = client.getresponse()
+                        self.assertEqual(response.status, expected)
+                        response.read()
+            finally:
+                process.terminate()
+                try:
+                    process.wait(timeout=20)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait(timeout=5)
+            log.seek(0)
+            output = log.read()
+        self.assertIn(f'Listening at: http://0.0.0.0:{port}', output)
+        self.assertIn('application ready', output)
+        self.assertIn('bootstrap lock released; exiting successfully', output)
+        self.assertNotIn(self.env['TCCP_SECRET_KEY'], output)
+        print(f'Fresh bootstrap + Gunicorn TCP /login ready in {ready:.3f}s; wrong Host=400; /health=404.')

@@ -2,6 +2,7 @@
 import argparse
 import os
 import sqlite3
+import time
 from contextlib import closing
 from datetime import timedelta
 from pathlib import Path
@@ -11,7 +12,7 @@ from config import TAX_RATE, business_now
 from services.money import calculate_tax_cents, from_cents
 
 
-def backup_database(destination):
+def backup_database(destination, *, timeout=None):
     destination = Path(destination).resolve()
     if destination.exists():
         raise ValueError("Backup destination already exists; choose a new filename.")
@@ -25,7 +26,11 @@ def backup_database(destination):
         conn.execute('PRAGMA foreign_keys=ON')
         with closing(sqlite3.connect(destination)) as target:
             target.execute('PRAGMA foreign_keys=ON')
-            conn.backup(target)
+            deadline = None if timeout is None else time.monotonic() + timeout
+            def progress(status, remaining, total):
+                if deadline is not None and time.monotonic() >= deadline:
+                    raise TimeoutError('Database backup timed out; source preserved. Do not restore the incomplete backup.')
+            conn.backup(target, pages=128, progress=progress if deadline is not None else None, sleep=0.1)
     destination.chmod(0o600)
     return destination
 
@@ -128,11 +133,17 @@ def seed_demo(allow_existing=False):
                     conn.execute('UPDATE products SET quantity=quantity-1 WHERE id=? AND store_id=?',(product,store))
 
 
-def prepare_render_demo():
+def prepare_render_demo(*, lock_timeout=30):
     """Opt-in bootstrap for a disposable, read-only Render Free demonstration."""
     import fcntl
 
     from database.validation import VERSIONS, validate_schema
+
+    started = time.monotonic()
+    def stage(message):
+        print(f'[TCCP bootstrap +{time.monotonic() - started:.2f}s] {message}', flush=True)
+
+    stage('validating demo configuration')
 
     required = {'TCCP_ENV': 'production', 'TCCP_READ_ONLY': '1',
                 'TCCP_ALLOW_REGISTRATION': '0', 'TCCP_EPHEMERAL_DEMO': '1'}
@@ -152,9 +163,20 @@ def prepare_render_demo():
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     # Serialize bootstrap processes; release before Gunicorn starts.
     with open(path.parent / '.bootstrap.lock', 'a') as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+        stage('waiting for bootstrap lock (maximum 30 seconds)')
+        deadline = time.monotonic() + lock_timeout
+        while True:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    raise TimeoutError('Bootstrap lock timed out. Another bootstrap may be active; no database changes were made.') from None
+                time.sleep(min(0.1, max(0, deadline - time.monotonic())))
+        stage('bootstrap lock acquired')
         current = False
         if path.exists():
+            stage('checking existing database and ownership')
             with closing(sqlite3.connect(path.resolve().as_uri() + '?mode=ro', uri=True)) as conn:
                 tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
                 if tables and not {'products', 'transactions', 'transaction_items'}.issubset(tables):
@@ -181,19 +203,32 @@ def prepare_render_demo():
                         raise ValueError('Refusing non-demo business records; nothing was changed.')
                 current = validate_schema(conn) == VERSIONS
             if not current:
-                backup_database(path.with_name('demo.before-bootstrap.' + business_now().strftime('%Y%m%d%H%M%S%f') + '.backup'))
+                stage('backing up existing database (maximum 30 seconds)')
+                backup_database(path.with_name('demo.before-bootstrap.' + business_now().strftime('%Y%m%d%H%M%S%f') + '.backup'), timeout=30)
+                stage('backup complete')
         if not current:
+            stage('initializing schema and running transactional migrations')
             database.initialize_database(seed=False)
+            stage('schema initialization complete')
+        else:
+            stage('schema is current; migrations skipped')
+        stage('checking database integrity before seeding')
         if not check_database()[0]:
             raise ValueError('Demo database integrity check failed.')
         with closing(database.get_db_connection()) as conn:
             has_demo = conn.execute("SELECT 1 FROM stores WHERE kind='demo'").fetchone() is not None
         if not has_demo:
+            stage('seeding fictional demo data')
             # Existing seeder is transactional and refuses duplicate demo stores.
             seed_demo()
+            stage('fictional demo seed complete')
+        else:
+            stage('fictional demo exists; seeding skipped')
         path.chmod(0o600)
+        stage('checking final database integrity')
         if not check_database()[0]:
             raise ValueError('Demo database integrity check failed after bootstrap.')
+    stage('ready; bootstrap lock released; exiting successfully')
 
 
 def main():
@@ -205,7 +240,7 @@ def main():
     try:
         if args.command == 'prepare-render-demo':
             prepare_render_demo()
-            print('Read-only fictional demo database ready.')
+            print('Read-only fictional demo database ready.', flush=True)
         elif args.command == 'check':
             ok, integrity, foreign_keys = check_database()
             print('Integrity:', integrity, 'Foreign-key violations:', foreign_keys)
@@ -242,7 +277,7 @@ def main():
             print('Integrity:', integrity, 'Foreign-key violations:', foreign_keys)
             return 0 if ok else 1
     except (ValueError, sqlite3.Error, OSError) as error:
-        print('Operation failed:', error)
+        print('Operation failed:', error, flush=True)
         return 1
     return 0
 

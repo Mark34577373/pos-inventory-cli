@@ -109,3 +109,73 @@ checks** passed. Ruff, compilation, dependency consistency and diff whitespace
 checks passed; the tracked sensitive-file/key-pattern scan found zero matches.
 The full test run permitted its temporary local Gunicorn Unix socket. No browser
 visual review or live Render deployment is claimed by these merge checks.
+
+## Slow/stuck startup diagnostics
+
+The reported command ended with `web_app`. Gunicorn 23 interprets that as
+`web_app:application`; this project defines `app`, not `application`. The bare target
+fails the import check. Set the Render Start Command to the explicit target:
+
+```sh
+python -u manage.py prepare-render-demo && exec gunicorn --bind 0.0.0.0:$PORT --workers 1 --threads 2 --timeout 60 --error-logfile - web_app:app
+```
+
+Baseline local preparation returned exit 0 in 0.680 seconds for a fresh fictional
+database and 0.411 seconds on restart. Existing initialization does transactional
+migrations and seeding only when needed; it does not perform network calls or start
+a background worker. WSGI import validates production schema/integrity and imports
+the authentication module, which computes one supported scrypt dummy hash per worker.
+No multi-minute initialization was reproduced on the small fictional database.
+
+A real silent-wait defect was reproduced: the old blocking `flock` call could wait
+indefinitely for another bootstrap, without printing any stage. Bootstrap now uses
+nonblocking lock attempts with a 30-second deadline. Log messages are flushed at
+configuration, lock, ownership/schema inspection, backup, migration, seed, integrity
+and successful exit stages. No secret values, customer records, session tokens or
+request data are logged. Lock timeout fails before modifying the database.
+Do not delete `.bootstrap.lock`: the presence of that file is normal; an active
+process holds the lock, and replacing the file can break mutual exclusion.
+
+Startup's SQLite online backup copy also has a 30-second progress deadline, so its
+automatic busy retry cannot wait indefinitely. Ordinary SQLite calls retain their
+existing busy timeout. An incomplete failed backup is retained for diagnosis and
+must not be restored without validation; the source database is never replaced.
+No records are reset/deleted. WSGI logs on stderr identify production validation
+and successful application setup; the setup timer starts after module imports.
+
+Use **`/login`** for the Render HTTP health-check path. It is public and lightweight;
+it is a liveness check after startup validation, not continuous storage monitoring.
+`/health` does not exist and returns 404. Keep `TCCP_TRUSTED_HOSTS` set to the actual
+public hostname (including a verified custom domain if Render uses it for probes),
+without disabling host checks. Render considers 2xx/3xx responses successful and
+requires a response within five seconds. See official
+[health checks](https://render.com/docs/health-checks) and
+[deployment troubleshooting](https://render.com/docs/troubleshooting-deploys).
+
+Interpret the next deployment logs in order:
+
+1. `validating demo configuration` — CLI entered.
+2. `waiting for bootstrap lock` / `bootstrap lock acquired` — lock contention stage.
+3. Migration/seed start and completion, or explicit skipped messages.
+4. `ready; bootstrap lock released; exiting successfully` — preparation finished;
+   `&&` can now launch Gunicorn.
+5. Gunicorn `Listening at: http://0.0.0.0:<PORT>` and `Booting worker`.
+6. WSGI `production database validated` and `application ready`.
+7. Render HTTP readiness succeeds at `/login` with an allowed Host.
+
+The single pasted log line cannot establish which stage is actually failing on
+Render, nor reveal its configured health path, host allowlist, worker exits or CPU
+metrics. The WSGI target error is confirmed; lock contention and health configuration
+are possible additional causes, not claims about the live service. No Render
+settings, resources or deployments are changed automatically by this investigation.
+
+Final startup investigation verification: **61 passed, 32 subtests passed**, zero
+failures/errors/skips, in **75.75 seconds**. The fresh Render-style shell command
+completed bootstrap, bound to `0.0.0.0:$PORT`, and returned `/login` HTTP 200 in
+**1.391 seconds** locally. An untrusted Host returned 400 and `/health` returned 404.
+Tests reproduce the bare WSGI target failure, verify the explicit target, enforce
+lock and backup deadlines, preserve source bytes on contention, preserve records
+on restart, retain security checks, and exercise the isolated interactive demo.
+Ruff, Python compilation and diff whitespace checks passed. JUnit evidence is the
+local temporary file `/private/tmp/tccp-startup-diagnostics.xml`. These local timings
+are not a performance guarantee for Render Free. No live deployment was performed.

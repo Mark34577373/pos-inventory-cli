@@ -2,6 +2,8 @@ import hmac
 import os
 import secrets
 import sqlite3
+import sys
+import time
 from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
 
@@ -60,6 +62,10 @@ from services.transaction_history import query_transactions
 from services.transaction_service import complete_transaction
 from settings_routes import bp as settings_blueprint
 
+_startup_started = time.monotonic()
+if os.environ.get('TCCP_ENV') == 'production':
+    print('[TCCP WSGI] configuring application after imports', file=sys.stderr, flush=True)
+
 app = Flask(__name__)
 
 app.register_blueprint(pos_blueprint)
@@ -114,6 +120,7 @@ if os.environ.get("TCCP_ENV") == "production":
     if Path(os.environ["TCCP_DB_PATH"]).resolve().is_relative_to(Path(app.static_folder).resolve()):
         raise RuntimeError("Production database must be outside the public static directory.")
     try:
+        print('[TCCP WSGI] validating production database', file=sys.stderr, flush=True)
         with closing(sqlite3.connect(Path(os.environ["TCCP_DB_PATH"]).resolve().as_uri() + "?mode=ro", uri=True)) as startup_db:
             startup_db.execute('PRAGMA foreign_keys=ON')
             if startup_db.execute("SELECT 1 FROM schema_migrations WHERE version=27").fetchone() is None:
@@ -125,6 +132,7 @@ if os.environ.get("TCCP_ENV") == "production":
                 raise RuntimeError('Production database must have private file permissions (0600).')
     except (sqlite3.Error, ValueError):
         raise RuntimeError("Production requires an existing database migrated with manage.py init.") from None
+    print('[TCCP WSGI] production database validated', file=sys.stderr, flush=True)
 
 
 
@@ -985,6 +993,10 @@ def reports():
 @app.errorhandler(404)
 def page_not_found(error):
     return render_template("404.html"), 404
+
+
+if os.environ.get('TCCP_ENV') == 'production':
+    print(f'[TCCP WSGI] application ready in {time.monotonic() - _startup_started:.2f}s', file=sys.stderr, flush=True)
 
 
 if __name__ == "__main__":
